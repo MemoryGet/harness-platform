@@ -42,7 +42,7 @@ class JudgeChecker(StrictModel):
     rubric: list[str]
     scale: str = "1-5"
     pass_if: str
-    samples: int = 3
+    samples: int = Field(default=3, ge=1)
     reference: str | None = None
     grounding: dict | None = None
 

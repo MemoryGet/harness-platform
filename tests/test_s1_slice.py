@@ -2,9 +2,10 @@ import unittest
 from pathlib import Path
 
 from hpx.checkers.rule import check_rule
+from hpx.checkers.judge import JudgeService, ModelTarget
 from hpx.dsl.loader import DslError, load_pack
 from hpx.knowledge.validate import validate_basis
-from hpx.model.pack import RuleChecker
+from hpx.model.pack import JudgeChecker, RuleChecker
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +43,55 @@ class S1SliceTests(unittest.TestCase):
                                           "quote": "不存在的原文"}]
         with self.assertRaisesRegex(DslError, "V-KB-03"):
             validate_basis(broken, ROOT / "knowledge")
+
+    def test_judge_rotation_failover_and_real_low_score(self):
+        class Backend:
+            def __init__(self):
+                self.calls = []
+
+            def score(self, target, checker, artifact):
+                self.calls.append(target.name)
+                if target.name == "primary":
+                    raise RuntimeError("unavailable")
+                return {"score": 2, "model_version": "backup-v1"}
+
+        backend = Backend()
+        service = JudgeService([ModelTarget("primary", "a"), ModelTarget("backup", "b")], backend)
+        checker = JudgeChecker(type="judge", rubric=["完整性"], pass_if="score >= 4", samples=1)
+        first = service.run(checker, "artifact")
+        self.assertEqual(first["status"], "fail")
+        self.assertEqual(backend.calls, ["primary", "backup"])
+        self.assertEqual(first["raw_scores"], [2])
+        service.run(checker, "artifact")
+        self.assertEqual(backend.calls, ["primary", "backup", "backup"])
+
+    def test_judge_all_models_unavailable_is_error(self):
+        class Down:
+            def score(self, target, checker, artifact):
+                raise RuntimeError("down")
+
+        service = JudgeService([ModelTarget("openai", "a")], Down())
+        checker = JudgeChecker(type="judge", rubric=["完整性"], pass_if="score >= 4", samples=1)
+        self.assertEqual(service.run(checker, "artifact")["status"], "error")
+
+    def test_judge_uses_median_and_rejects_ungrounded_output(self):
+        class Scores:
+            def __init__(self):
+                self.values = iter([3, 5, 4])
+
+            def score(self, target, checker, artifact):
+                return {"score": next(self.values), "model_version": "test-v1"}
+
+        checker = JudgeChecker(type="judge", rubric=["完整性"], pass_if="score >= 4", samples=3)
+        service = JudgeService([ModelTarget("test", "a")], Scores())
+        result = service.run(checker, "artifact")
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["score"], 4)
+        checker.grounding = {"mode": "cite_required", "min_citations": 1}
+        service = JudgeService([ModelTarget("test", "a")],
+                               type("Ungrounded", (), {"score": lambda self, *args: {
+                                   "score": 5, "citations": [], "uncited_claims": ["claim"]}})())
+        self.assertEqual(service.run(checker, "artifact")["status"], "fail")
 
 
 if __name__ == "__main__":

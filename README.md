@@ -18,6 +18,12 @@ echo '{"audio":{"integrated_lufs":-13.6}}' > /tmp/hpx-evidence.json
 .venv/bin/hpx check --pack examples/video-shortform.yaml --criterion loudness_target --evidence /tmp/hpx-evidence.json
 ```
 
+`judge` 默认使用 OpenAI 的 `gpt-4.1-mini`，从 `HPX_OPENAI_KEY` 读取凭据。可通过 `--models examples/judge-models.example.json` 指定多个模型端点；请先将示例中的备用模型地址、模型名和凭据变量名替换为实际值。配置文件只存变量名，不存密钥。服务轮换起点；调用失败时尝试下一个端点，正常返回的低分不会触发切换。非 OpenAI 兼容服务可实现 `JudgeBackend` 协议。当前仅支持 `absolute` 评分和文本产物。
+
+```bash
+.venv/bin/hpx check --pack examples/legal-contract-review.yaml --criterion risk_memo_quality --artifact /tmp/memo.txt
+```
+
 > 一句话：把业务专家脑子里的**隐性判据**，变成可执行、可验收、可回滚的 agent。
 
 本仓库的业务验证仍处于 **S0 阶段（设计定稿 / 纸面验证）**，同时已开始 S1 的基础代码。文档包的用途是：在投入 UI 与完整实现之前，先把**行业无关的内核**定义清楚，并用三份跨行业判据样例做纸面压测。

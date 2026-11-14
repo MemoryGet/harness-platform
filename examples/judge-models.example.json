@@ -1,0 +1,13 @@
+[
+  {
+    "name": "openai-primary",
+    "model": "gpt-4.1-mini",
+    "api_key_env": "HPX_OPENAI_KEY"
+  },
+  {
+    "name": "compatible-backup",
+    "model": "replace-with-model-id",
+    "base_url": "https://replace-with-provider.example/v1",
+    "api_key_env": "HPX_BACKUP_MODEL_KEY"
+  }
+]
