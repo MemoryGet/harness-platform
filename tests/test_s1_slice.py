@@ -7,9 +7,11 @@ from pathlib import Path
 from hpx.checkers.rule import check_rule
 from hpx.checkers.judge import JudgeService, ModelTarget
 from hpx.checkers.media import media_probe
+from hpx.checkers.schema import check_schema
+from hpx.checkers.record import input_get, record_field_check
 from hpx.dsl.loader import DslError, load_pack
 from hpx.knowledge.validate import validate_basis
-from hpx.model.pack import JudgeChecker, RuleChecker
+from hpx.model.pack import JudgeChecker, RuleChecker, SchemaChecker
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,6 +111,36 @@ class S1SliceTests(unittest.TestCase):
             self.assertEqual(data["video"]["width"], 320)
             self.assertGreater(data["video"]["duration_sec"], 1)
             self.assertTrue(-15 <= data["audio"]["integrated_lufs"] <= -13)
+
+    def test_schema_check_pass_fail_and_strict_mode(self):
+        path = ROOT / "schemas/triage_result.json"
+        valid = {"ticket_id": "T-1", "route": "技术支撑组", "priority": "P2",
+                 "labels": {"category": "技术", "confidence": 0.9},
+                 "sla": {"started": True, "deadline": "2026-11-14T12:00:00Z", "minutes_left": 60},
+                 "reply_draft": "您好，我们已经收到您的问题并开始处理。"}
+        strict = SchemaChecker(type="schema", schema_ref="schemas/triage_result.json")
+        self.assertEqual(check_schema(strict, valid, path)["status"], "pass")
+        missing = {key: value for key, value in valid.items() if key != "route"}
+        self.assertEqual(check_schema(strict, missing, path)["status"], "fail")
+        extra = {**valid, "unexpected": True}
+        self.assertEqual(check_schema(strict, extra, path)["status"], "fail")
+        loose = SchemaChecker(type="schema", schema_ref="schemas/triage_result.json", strict=False)
+        self.assertEqual(check_schema(loose, extra, path)["status"], "pass")
+
+    def test_input_and_record_collectors(self):
+        self.assertEqual(input_get({"channel": "web"}, "channel"), {"channel": "web"})
+        self.assertEqual(input_get({}, "channel"), {"channel": None})
+        self.assertEqual(record_field_check({"ticket": {"body": "需要退款处理"}}, "ticket.body"),
+                         {"value": "需要退款处理", "length": 6})
+        self.assertEqual(record_field_check({}, "ticket.body"), {"value": None, "length": 0})
+        pack = load_pack(ROOT / "examples/support-ticket-triage.yaml")
+        body = next(item for item in pack.slots.input if item.id == "body_sufficient")
+        self.assertTrue(check_rule(body.check, record_field_check(
+            {"ticket": {"body": "客户购买的设备无法启动，希望尽快安排技术支持"}}, "ticket.body"))[0]["ok"])
+        self.assertFalse(check_rule(body.check, record_field_check({}, "ticket.body"))[0]["ok"])
+        channel = next(item for item in pack.slots.input if item.id == "channel_supported")
+        self.assertTrue(check_rule(channel.check, input_get({"channel": "web"}, "channel"))[0]["ok"])
+        self.assertFalse(check_rule(channel.check, input_get({"channel": "fax"}, "channel"))[0]["ok"])
 
 
 if __name__ == "__main__":

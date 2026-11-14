@@ -2,7 +2,7 @@
 
 ## 当前开发进度（S1 起步）
 
-已实现可安装的 Python 包、四份样例的结构校验、本地知识依据的来源/唯一匹配/原文核对、基于 FFmpeg 的 `media.probe` 采集器、单条 `rule` 断言调试，以及可配置多模型切换的 `judge`。发布日期相关的知识校验、其他行业采集器、编译与运行时仍在开发中。
+已实现可安装的 Python 包、四份样例的结构校验、本地知识依据的来源/唯一匹配/原文核对、`media.probe` / `input.get` / `record.field_check` 采集器、`rule` 与 JSON Schema 单条检查，以及可配置多模型切换的 `judge`。发布日期相关的知识校验、其余采集器、编译与运行时仍在开发中。
 
 ```bash
 python -m venv .venv
@@ -22,6 +22,12 @@ echo '{"audio":{"integrated_lufs":-13.6}}' > /tmp/hpx-evidence.json
 
 ```bash
 .venv/bin/hpx check --pack examples/video-shortform.yaml --criterion loudness_target --artifact /path/to/video.mp4
+```
+
+JSON 输入与记录检查直接使用 `--artifact` 指向 JSON 文件。结构检查例如：
+
+```bash
+.venv/bin/hpx check --pack examples/support-ticket-triage.yaml --criterion result_schema_valid --artifact /path/to/triage-result.json
 ```
 
 `judge` 默认使用 OpenAI 的 `gpt-4.1-mini`，从 `HPX_OPENAI_KEY` 读取凭据。可通过 `--models examples/judge-models.example.json` 指定多个模型端点；请先将示例中的备用模型地址、模型名和凭据变量名替换为实际值。配置文件只存变量名，不存密钥。服务轮换起点；调用失败时尝试下一个端点，正常返回的低分不会触发切换。非 OpenAI 兼容服务可实现 `JudgeBackend` 协议。当前仅支持 `absolute` 评分和文本产物。

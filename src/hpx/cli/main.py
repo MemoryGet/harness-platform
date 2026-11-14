@@ -6,9 +6,11 @@ import typer
 from hpx.checkers.rule import check_rule
 from hpx.checkers.judge import JudgeService, ModelTarget
 from hpx.checkers.media import media_probe
+from hpx.checkers.record import input_get, record_field_check
+from hpx.checkers.schema import check_schema
 from hpx.dsl.loader import DslError, load_pack
 from hpx.knowledge.validate import validate_basis
-from hpx.model.pack import JudgeChecker, RuleChecker
+from hpx.model.pack import JudgeChecker, RuleChecker, SchemaChecker
 
 app = typer.Typer(help="判据包验证与单条判据调试")
 
@@ -19,6 +21,14 @@ def knowledge_directory(path: Path) -> Path:
         if candidate.is_dir():
             return candidate
     return path.resolve().parent / "knowledge"
+
+
+def schema_path(pack: Path, reference: str) -> Path:
+    for root in (pack.resolve().parent, *pack.resolve().parents):
+        candidate = (root / reference).resolve()
+        if candidate.is_relative_to(root) and candidate.is_file():
+            return candidate
+    raise ValueError(f"找不到 Schema 文件：{reference}")
 
 
 @app.command()
@@ -57,8 +67,15 @@ def check(
                 values = json.loads(evidence.read_text(encoding="utf-8"))
             elif artifact is not None and item.check.fn == "media.probe":
                 values = media_probe(artifact)
+            elif artifact is not None and item.check.fn in ("input.get", "record.field_check"):
+                source = json.loads(artifact.read_text(encoding="utf-8"))
+                params = item.check.params
+                if item.check.fn == "input.get":
+                    values = input_get(source, params["key"])
+                else:
+                    values = record_field_check(source, params["path"])
             else:
-                raise ValueError("该 rule 检查需要 --evidence；media.probe 可使用 --artifact")
+                raise ValueError("该 rule 检查需要 --evidence，或已支持的采集器加 --artifact")
             results = check_rule(item.check, values)
             output = {"criterion_id": criterion, "status": "pass" if all(row["ok"] for row in results)
                       else "fail", "assertions": results}
@@ -69,6 +86,12 @@ def check(
                 {"name": "openai", "model": "gpt-4.1-mini"}]
             service = JudgeService([ModelTarget(**entry) for entry in configured])
             output = {"criterion_id": criterion, **service.run(item.check, artifact.read_text(encoding="utf-8"))}
+        elif isinstance(item.check, SchemaChecker):
+            if artifact is None:
+                raise ValueError("schema 检查需要 --artifact")
+            value = json.loads(artifact.read_text(encoding="utf-8"))
+            output = {"criterion_id": criterion,
+                      **check_schema(item.check, value, schema_path(pack, item.check.schema_ref))}
         else:
             raise ValueError(f"当前 check 尚不支持 {item.check.type} 类型")
         typer.echo(json.dumps(output, ensure_ascii=False))
@@ -79,6 +102,6 @@ def check(
         raise typer.Exit(1) from exc
     except typer.Exit:
         raise
-    except (OSError, RuntimeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+    except (OSError, RuntimeError, SchemaError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         typer.echo(f"检查失败：{exc}", err=True)
         raise typer.Exit(3) from exc

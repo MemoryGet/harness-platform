@@ -22,7 +22,9 @@ def evaluate(assertion: Assertion, data: dict) -> dict:
     expected = assertion.value
     op = assertion.op
     try:
-        if op in OPS:
+        if actual is None and expected is not None and op in ("<", "<=", ">", ">=", "within", "min_count"):
+            ok = False
+        elif op in OPS:
             ok = OPS[op](actual, expected)
         elif op == "within":
             ok = len(expected) == 2 and expected[0] <= actual <= expected[1]
