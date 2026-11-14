@@ -1,0 +1,312 @@
+# 样例 3/3 —— 客服工单分派
+# 载体：record (JSON) · 特点：输出可完全结构化断言，含条件触发的否决与闸门
+# 压测意义：验证内核能否承载"结构化输出 + 条件判据（applies_when）+ 动态闸门"这一类业务
+
+dsl_version: "0.1"
+kind: CriterionPack
+
+metadata:
+  id: support-ticket-triage
+  name: 客服工单分派
+  industry: support
+  version: 1.0.0
+  owner: 客户服务中心
+  description: 进线工单的分类、优先级与分派规范，含 SLA 约束与升级规则
+
+artifact:
+  kind: record
+  format: json
+  schema_ref: schemas/triage_result.json
+
+evidence:
+  - ticket      # 工单原文与历史
+  - customer    # 客户档案（等级、历史投诉）
+  - risk        # 风险识别结果（法律威胁、舆情、情绪）
+  - sla         # SLA 计时状态
+
+workflow:
+  steps:
+    - id: fetch_ticket
+      uses: tool.ticket_get
+      output: ticket
+    - id: enrich_customer
+      uses: tool.crm_lookup
+      output: customer
+      depends_on: [fetch_ticket]
+    - id: calc_sla
+      uses: tool.sla_calc
+      output: sla
+      depends_on: [fetch_ticket, enrich_customer]
+    - id: classify
+      uses: agent.classifier
+      output: labels
+      depends_on: [fetch_ticket, enrich_customer]
+    - id: decide_route
+      uses: agent.router
+      output: route
+      depends_on: [classify, calc_sla]
+    - id: draft_reply
+      uses: agent.reply_writer
+      output: draft
+      depends_on: [decide_route]
+    - id: persist
+      uses: tool.ticket_update
+      output: result
+      depends_on: [draft_reply, calc_sla]
+
+slots:
+  # ── 输入判据 ─────────────────────────────────────────────────
+  input:
+    - id: body_sufficient
+      title: 工单描述够用
+      ask: "客户描述至少多少字才能自动分派？"
+      rationale: "过短的描述无法判断意图，强行分派会导致二次转派。"
+      after: fetch_ticket
+      check:
+        type: rule
+        fn: record.field_check
+        params: { path: ticket.body }
+        assert:
+          - field: length
+            op: ">="
+            value: 10
+            message: "描述过短，请先向客户追问具体问题"
+      severity: block
+
+    - id: channel_supported
+      title: 渠道在支持范围
+      ask: "哪几个渠道进来工单可以自动处理？"
+      rationale: "电话与线下渠道的上下文不完整，需人工接入。"
+      after: fetch_ticket
+      check:
+        type: rule
+        fn: input.get
+        params: { key: channel }
+        assert:
+          - field: channel
+            op: in
+            value: [app, web, wechat]
+            message: "该渠道不支持自动分派"
+      severity: block
+
+    - id: customer_identified
+      title: 客户可识别
+      ask: "必须能定位到客户档案吗？"
+      rationale: "没有客户档案就无法判断等级与历史，SLA 也无法计时。"
+      after: enrich_customer
+      check:
+        type: rule
+        fn: record.field_check
+        params: { path: customer.id }
+        assert:
+          - field: value
+            op: "!="
+            value: null
+            message: "未能匹配到客户档案"
+      severity: block
+
+  # ── 过程判据 ─────────────────────────────────────────────────
+  process:
+    - id: must_enrich_before_route
+      title: 分派前必须查过客户档案
+      ask: "分派之前必须先看客户历史吗？"
+      rationale: "跳过档案查询会把 VIP 与重复投诉客户当普通工单处理。"
+      after: decide_route
+      check:
+        type: rule
+        fn: run.steps_completed
+        assert:
+          - field: completed
+            op: contains
+            value: enrich_customer
+            message: "未查询客户档案即分派"
+      severity: block
+
+    - id: sla_clock_started
+      title: SLA 计时已启动
+      ask: "工单进线多久内必须开始计时？"
+      rationale: "未启动计时会导致超时无告警。"
+      evidence: [sla]
+      after: calc_sla
+      check:
+        type: rule
+        fn: sla.check
+        assert:
+          - field: started
+            op: "=="
+            value: true
+            message: "SLA 计时未启动"
+      severity: block
+
+    - id: reopen_history_checked
+      title: 重复投诉已核查
+      ask: "同一问题重复进线几次要特别标记？"
+      rationale: "重复投诉是升级信号，漏掉会引发二次不满。"
+      evidence: [ticket]
+      after: fetch_ticket
+      check:
+        type: rule
+        fn: ticket.history
+        assert:
+          - field: reopen_count
+            op: ">="
+            value: 2
+            message: "该问题已重复进线 2 次以上，建议标记升级"
+      severity: warn
+
+  # ── 合格判据 ─────────────────────────────────────────────────
+  quality:
+    - id: result_schema_valid
+      title: 分派结果结构合法
+      ask: "分派结果必须包含哪些字段？"
+      rationale: "下游系统按固定结构消费，缺字段会直接报错。"
+      after: persist
+      check:
+        type: schema
+        schema_ref: schemas/triage_result.json
+        strict: true
+      severity: block
+
+    - id: confidence_threshold
+      title: 分类置信度达标
+      ask: "置信度低于多少就要转人工？"
+      rationale: "低置信度自动分派是误派的主要来源。"
+      after: classify
+      check:
+        type: rule
+        fn: record.field_check
+        params: { path: labels.confidence }
+        assert:
+          - field: value
+            op: ">="
+            value: 0.75
+            message: "分类置信度不足，转人工复核"
+      severity: block
+
+    - id: route_in_whitelist
+      title: 分派目标在允许列表
+      ask: "工单只能派给哪几个组？"
+      rationale: "派给不存在的组会造成工单悬空。"
+      after: decide_route
+      check:
+        type: rule
+        fn: routing.check
+        assert:
+          - field: route
+            op: in
+            value: [售前咨询组, 售后一组, 售后二组, 账务组, 技术支撑组]
+            message: "分派目标不在允许列表内"
+      severity: block
+
+    - id: priority_matches_sla
+      title: 优先级与 SLA 一致
+      ask: "优先级和 SLA 时限必须对得上吗？"
+      rationale: "高优工单按普通时限处理是最常见的内部违规。"
+      after: decide_route
+      check:
+        type: rule
+        fn: record.consistency
+        assert:
+          - field: priority_sla_consistent
+            op: "=="
+            value: true
+            message: "优先级与 SLA 时限不匹配"
+      severity: block
+
+    - id: no_pii_in_reply
+      title: 回复中无客户隐私外泄
+      ask: "回复里允许出现完整手机号、身份证号吗？"
+      rationale: "客服回复会通过短信/推送外发，泄露即事故。"
+      after: draft_reply
+      check:
+        type: rule
+        fn: privacy.scan
+        params: { targets: [phone, id_card, bank_card, address] }
+        assert:
+          - field: pii_hits
+            op: "=="
+            value: 0
+            message: "回复中包含未脱敏的客户隐私信息"
+      severity: block
+
+    - id: reply_tone
+      title: 回复语气合格
+      ask: "合格的客户回复应该具备什么？"
+      rationale: "语气问题不阻断，但会显著影响满意度评分。"
+      after: draft_reply
+      check:
+        type: judge
+        mode: absolute
+        model: llm-default
+        rubric:
+          - 是否礼貌且不使用推诿性表达
+          - 是否给出明确的下一步与时间点
+          - 是否避免承诺无法保证的时限
+        scale: 1-5
+        pass_if: "score >= 4"
+        samples: 3
+      severity: warn
+
+  # ── 否决判据：含条件触发（applies_when）────────────────────────
+  veto:
+    - id: legal_threat_escalated
+      title: 法律威胁已升级
+      ask: "客户提到起诉、媒体曝光时必须怎么处理？"
+      rationale: "法律威胁类工单自动回复可能构成不利证据。"
+      evidence: [risk]
+      applies_when: "evidence.risk.legal_threat == true"
+      after: classify
+      check:
+        type: rule
+        fn: risk.check
+        assert:
+          - field: escalated
+            op: "=="
+            value: true
+            message: "疑似法律威胁，必须立即升级至法务接口人"
+      severity: veto
+
+    - id: vip_negative_review
+      title: VIP 负面情绪人工复核
+      ask: "什么情况下必须由主管亲自看？"
+      rationale: "高价值客户的负面情绪工单，自动回复的边际风险远大于收益。"
+      evidence: [customer, risk]
+      applies_when: "evidence.customer.tier == 'vip' and evidence.risk.sentiment == 'negative'"
+      after: decide_route
+      check:
+        type: gate
+        approver_role: 客服主管
+        timeout_min: 15
+        on_timeout: escalate
+        must_see:
+          - evidence.ticket
+          - evidence.customer
+          - check_results[quality.route_in_whitelist]
+        prompt: "VIP 客户负面工单，确认分派方案与回复草稿？"
+      severity: veto
+
+    - id: safety_incident
+      title: 安全事件直达
+      ask: "涉及人身安全、资金损失的工单怎么走？"
+      rationale: "此类工单不允许走常规队列，必须直达值班负责人。"
+      evidence: [risk]
+      applies_when: "evidence.risk.safety_incident == true"
+      after: classify
+      check:
+        type: rule
+        fn: risk.check
+        assert:
+          - field: direct_to_duty_manager
+            op: "=="
+            value: true
+            message: "安全事件未直达值班负责人"
+      severity: veto
+
+policy:
+  on_fail: retry
+  max_retries: 2
+
+eval:
+  golden_set: golden/support.yaml
+  min_pass_rate: 0.92
+  max_veto: 0

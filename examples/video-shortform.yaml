@@ -1,0 +1,372 @@
+# 样例 1/3 —— 短视频批量出片
+# 载体：timeline (OTIO) · 特点：技术指标可完全机检，合规条款有法律依据
+# 压测意义：验证内核能否承载"高机检率 + 数值容差 + 法定否决"这一类业务
+
+dsl_version: "0.1"
+kind: CriterionPack
+
+metadata:
+  id: video-shortform
+  name: 短视频批量出片
+  industry: media
+  version: 1.0.0
+  owner: 内容中台组
+  description: 抖音 / 视频号竖屏短片的出片规范，覆盖时长、响度、字幕、规格与 AI 披露
+
+artifact:
+  kind: timeline
+  format: otio
+  schema_ref: null
+
+evidence:
+  - probe          # 媒体探测（ffprobe）：分辨率/帧率/时长/响度/黑帧
+  - transcript     # 词级转写
+  - prompts        # 生成式内容标记
+
+workflow:
+  steps:
+    - id: ingest
+      uses: tool.probe_media
+      output: probe
+    - id: transcribe
+      uses: tool.asr_word_level
+      output: transcript
+      depends_on: [ingest]
+    - id: detect_shots
+      uses: tool.scene_detect
+      output: shots
+      depends_on: [ingest]
+    - id: plan_cuts
+      uses: agent.cut_planner
+      output: cut_plan
+      depends_on: [transcribe, detect_shots]
+    - id: assemble
+      uses: tool.otio_build
+      output: timeline
+      depends_on: [plan_cuts]
+    - id: caption
+      uses: tool.caption_render
+      output: captions
+      depends_on: [assemble, transcribe]
+    - id: export
+      uses: tool.otio_export
+      output: timeline_final
+      depends_on: [caption]
+
+slots:
+  # ── 输入判据：素材够不够，不够就别开工 ─────────────────────────
+  input:
+    - id: source_media_present
+      title: 有可用源素材
+      ask: "这次要剪的素材在哪里？能读到吗？"
+      rationale: "读不到素材就无法开始，提前失败比中途失败省算力。"
+      after: ingest
+      check:
+        type: rule
+        fn: media.probe
+        assert:
+          - field: video.duration_sec
+            op: ">"
+            value: 0
+            message: "源素材时长为 0，文件可能损坏"
+      severity: block
+
+    - id: audio_track_present
+      title: 有音轨
+      ask: "素材必须有声音吗？"
+      rationale: "口播类内容无音轨等同于不可用；纯画面类可放行。"
+      evidence: [probe]
+      after: ingest
+      check:
+        type: rule
+        fn: media.probe
+        assert:
+          - field: audio.has_track
+            op: "=="
+            value: true
+            message: "素材没有音轨"
+      severity: block
+
+    - id: platform_declared
+      title: 已声明投放平台
+      ask: "这条片子投哪个平台？"
+      rationale: "不同平台时长与画幅要求不同，必须显式声明。"
+      after: ingest
+      check:
+        type: rule
+        fn: input.get
+        params: { key: platform }
+        assert:
+          - field: platform
+            op: in
+            value: [douyin, shipinhao, xiaohongshu]
+            message: "未声明投放平台或平台不在支持列表内"
+      severity: block
+
+    - id: portrait_consent_input
+      title: 肖像授权已确认
+      ask: "出镜人是否已授权？授权书编号是多少？"
+      rationale: "肖像侵权是硬性法律风险，必须在开工前确认。"
+      after: ingest
+      check:
+        type: rule
+        fn: input.get
+        params: { key: portrait_consent_id }
+        assert:
+          - field: portrait_consent_id
+            op: "!="
+            value: null
+            message: "缺少肖像授权编号"
+      severity: veto
+
+  # ── 过程判据：必须走过的步骤，不许跳 ───────────────────────────
+  process:
+    - id: must_transcribe
+      title: 已完成词级转写
+      ask: "剪辑前是否必须先做转写？"
+      rationale: "没有词级时间戳就无法做口播去废话与字幕对齐。"
+      after: transcribe
+      check:
+        type: rule
+        fn: run.steps_completed
+        assert:
+          - field: completed
+            op: contains
+            value: transcribe
+            message: "跳过了转写步骤"
+      severity: block
+
+    - id: must_detect_shots
+      title: 已完成分镜切分
+      ask: "选片前是否必须先切分镜？"
+      rationale: "不切分镜会导致 B-roll 与主镜头错位。"
+      after: detect_shots
+      check:
+        type: rule
+        fn: run.steps_completed
+        assert:
+          - field: completed
+            op: contains
+            value: detect_shots
+            message: "跳过了分镜切分"
+      severity: block
+
+    - id: proxy_before_preview
+      title: 预览用代理文件
+      ask: "预览是否必须走低码率代理？"
+      rationale: "整片渲染一次数分钟，agent 试错会被拖死。"
+      after: assemble
+      check:
+        type: rule
+        fn: otio.proxy_check
+        assert:
+          - field: using_proxy
+            op: "=="
+            value: true
+            message: "未使用代理文件直接预览，渲染成本过高"
+      severity: warn
+
+  # ── 合格判据：交付物必须满足的硬指标（本行业最厚的一层）────────
+  quality:
+    - id: duration_window
+      title: 时长在窗口内
+      ask: "成片时长要求多少秒？"
+      rationale: "超 60 秒会被多数平台截断，短于 15 秒完播率不足。"
+      evidence: [probe]
+      after: export
+      check:
+        type: rule
+        fn: media.probe
+        assert:
+          - field: video.duration_sec
+            op: "<="
+            value: 60
+            message: "时长超过 60 秒"
+          - field: video.duration_sec
+            op: ">="
+            value: 15
+            message: "时长不足 15 秒"
+      severity: block
+
+    - id: loudness_target
+      title: 响度达标
+      ask: "成片响度应该是多少 LUFS？容差多少？"
+      rationale: "各平台响度标准不同，超标会被限流。"
+      evidence: [probe]
+      after: export
+      check:
+        type: rule
+        fn: media.probe
+        assert:
+          - field: audio.integrated_lufs
+            op: within
+            value: [-15, -13]
+            message: "整体响度偏离 -14 LUFS 超过 1dB"
+      severity: block
+
+    - id: true_peak
+      title: 真峰值不超限
+      ask: "峰值电平上限是多少？"
+      rationale: "峰值超 0dB 会削波，平台转码后失真更明显。"
+      evidence: [probe]
+      after: export
+      check:
+        type: rule
+        fn: media.probe
+        assert:
+          - field: audio.true_peak_db
+            op: "<="
+            value: -1.0
+            message: "真峰值超过 -1dBTP"
+      severity: block
+
+    - id: no_black_frames
+      title: 无黑帧
+      ask: "成片里允许出现黑帧吗？"
+      rationale: "黑帧通常是拼接错误或素材缺失，属于硬性瑕疵。"
+      evidence: [probe]
+      after: export
+      check:
+        type: rule
+        fn: media.probe
+        assert:
+          - field: video.black_frames
+            op: "=="
+            value: 0
+            message: "检测到黑帧，检查拼接处"
+      severity: block
+
+    - id: subtitle_readability
+      title: 字幕可读性
+      ask: "字幕每行最多几个字？每条至少显示多久？"
+      rationale: "竖屏小屏阅读，超长行与闪现字幕都会被判定为低质内容。"
+      after: caption
+      check:
+        type: rule
+        fn: otio.caption_metrics
+        assert:
+          - field: max_chars_per_line
+            op: "<="
+            value: 14
+            message: "存在超过 14 字的字幕行"
+          - field: min_display_sec
+            op: ">="
+            value: 1.2
+            message: "存在显示不足 1.2 秒的字幕"
+      severity: block
+
+    - id: safe_area
+      title: 竖屏安全区
+      ask: "主体和字幕要不要避开平台 UI 遮挡区？"
+      rationale: "上下各约 15% 会被平台按钮与文案遮挡。"
+      after: export
+      check:
+        type: rule
+        fn: otio.safe_area_check
+        assert:
+          - field: violations
+            op: "=="
+            value: 0
+            message: "有元素进入平台遮挡区"
+      severity: block
+
+    - id: vertical_spec
+      title: 竖屏规格
+      ask: "分辨率与帧率要求是什么？"
+      rationale: "非标准规格会被平台二次压缩，画质下降。"
+      evidence: [probe]
+      after: export
+      check:
+        type: rule
+        fn: media.probe
+        assert:
+          - field: video.width
+            op: "=="
+            value: 1080
+            message: "宽度不是 1080"
+          - field: video.height
+            op: "=="
+            value: 1920
+            message: "高度不是 1920"
+          - field: video.fps
+            op: in
+            value: [25, 30, 60]
+            message: "帧率不在 25/30/60 之内"
+      severity: block
+
+    - id: brand_tone
+      title: 品牌调性一致
+      ask: "这条片子要符合什么风格？参照哪条已发布的片子？"
+      rationale: "风格一致性影响账号识别度，但无法用数值断言。"
+      after: export
+      check:
+        type: judge
+        mode: pairwise
+        model: vlm-default
+        rubric:
+          - 画面主体是否居中且在安全区内
+          - 字幕样式是否与品牌模板一致
+          - 节奏是否与参考片接近
+        scale: 1-5
+        pass_if: "score >= 4"
+        samples: 3
+        reference: refs/brand_reference_01.mp4
+      severity: warn
+
+  # ── 否决判据：一票停手，必须人工复核 ───────────────────────────
+  veto:
+    - id: ai_disclosure
+      title: AI 生成内容已披露
+      ask: "画面或配音是 AI 生成的吗？有没有加披露标记？"
+      rationale: "EU AI Act 第 50 条自 2026-08-02 适用，已上市系统须于 2026-12-02 前带机器可读标记。"
+      evidence: [prompts, probe]
+      after: export
+      check:
+        type: rule
+        fn: compliance.ai_disclosure
+        assert:
+          - field: marker_present
+            op: "=="
+            value: true
+            message: "存在生成式内容但缺少披露标记"
+      severity: veto
+
+    - id: copyright_cleared
+      title: 音乐与字体已授权
+      ask: "BGM 和字幕字体有商用授权吗？"
+      rationale: "未授权素材是最高频的侵权来源，赔偿成本远高于制作成本。"
+      after: export
+      check:
+        type: rule
+        fn: rights.check_assets
+        assert:
+          - field: unlicensed_count
+            op: "=="
+            value: 0
+            message: "存在未授权素材"
+      severity: veto
+
+    - id: release_signoff
+      title: 发布前人工确认
+      ask: "谁有权最终确认发布？"
+      rationale: "法定披露与品牌风险不接受机器自愈，必须有人签字。"
+      after: export
+      check:
+        type: gate
+        approver_role: 剪辑组长
+        timeout_min: 30
+        on_timeout: escalate
+        must_see:
+          - evidence.transcript
+          - check_results[quality.*]
+        prompt: "确认成片可对外发布？（重点看响度、字幕与 AI 披露）"
+      severity: veto
+
+policy:
+  on_fail: retry
+  max_retries: 1
+
+eval:
+  golden_set: golden/video.yaml
+  min_pass_rate: 0.9
+  max_veto: 0

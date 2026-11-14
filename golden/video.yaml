@@ -1,0 +1,90 @@
+# 黄金集样例：短视频批量出片
+# 用途：S3 起用于回归评测；S4 压测时用于证明内核能真实执行判据
+# 断言格式：expect 里列出"必须命中某状态的判据"，未列出的判据不参与断言（只统计）
+
+dsl_version: "0.1"
+kind: GoldenSet
+
+metadata:
+  pack_id: video-shortform
+  pack_version: 1.0.0
+  set_id: video-baseline
+  created_by: 内容中台组
+  note: 全部来自真实返修单，case 名对应返修原因编号
+
+cases:
+  - case_id: V-001
+    title: 标准合格片
+    inputs:
+      platform: douyin
+      portrait_consent_id: PC-2026-0912
+    artifact: fixtures/v001_ok.otio
+    expect:
+      - { criterion: duration_window, status: pass }
+      - { criterion: loudness_target, status: pass }
+      - { criterion: subtitle_readability, status: pass }
+      - { criterion: ai_disclosure, status: pass }
+    tags: [baseline]
+
+  - case_id: V-002
+    title: 响度偏高 2dB（历史返修 R-104）
+    inputs:
+      platform: douyin
+      portrait_consent_id: PC-2026-0913
+    artifact: fixtures/v002_loud.otio
+    expect:
+      - { criterion: loudness_target, status: fail }
+      - { criterion: true_peak, status: pass }
+    tags: [regression, audio]
+
+  - case_id: V-003
+    title: 字幕单行 18 字（历史返修 R-118）
+    inputs:
+      platform: shipinhao
+      portrait_consent_id: PC-2026-0914
+    artifact: fixtures/v003_longcaption.otio
+    expect:
+      - { criterion: subtitle_readability, status: fail }
+    tags: [regression, caption]
+
+  - case_id: V-004
+    title: 时长 72 秒被平台截断（历史返修 R-121）
+    inputs:
+      platform: douyin
+      portrait_consent_id: PC-2026-0915
+    artifact: fixtures/v004_long.otio
+    expect:
+      - { criterion: duration_window, status: fail }
+    tags: [regression, duration]
+
+  - case_id: V-005
+    title: AI 配音但未加披露标记（合规演练）
+    inputs:
+      platform: douyin
+      portrait_consent_id: PC-2026-0916
+    artifact: fixtures/v005_no_disclosure.otio
+    expect:
+      - { criterion: ai_disclosure, status: fail }
+      - { criterion: release_signoff, status: skipped }
+    tags: [compliance, veto]
+
+  - case_id: V-006
+    title: 缺少肖像授权（应直接否决）
+    inputs:
+      platform: douyin
+      portrait_consent_id: null
+    artifact: fixtures/v006_no_consent.otio
+    expect:
+      - { criterion: portrait_consent_input, status: fail }
+    tags: [compliance, veto]
+
+  - case_id: V-007
+    title: 未使用代理文件预览
+    inputs:
+      platform: xiaohongshu
+      portrait_consent_id: PC-2026-0917
+    artifact: fixtures/v007_no_proxy.otio
+    expect:
+      - { criterion: proxy_before_preview, status: fail }
+      - { criterion: duration_window, status: pass }
+    tags: [process]

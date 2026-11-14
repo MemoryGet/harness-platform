@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/clause_tree.json",
+  "title": "ClauseTree",
+  "description": "合同条款树。所有风险论断必须通过 clause_id 回指到树上的节点，否则视为幻觉引用。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["doc_id", "contract_type", "jurisdiction", "parties", "clauses"],
+  "properties": {
+    "doc_id": { "type": "string", "minLength": 1 },
+    "contract_type": {
+      "type": "string",
+      "enum": ["sales", "labor", "license", "nda"]
+    },
+    "jurisdiction": {
+      "type": "string",
+      "enum": ["CN", "EU", "US", "HK"]
+    },
+    "parties": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "name"],
+        "properties": {
+          "role": { "type": "string", "enum": ["甲方", "乙方", "丙方", "担保方"] },
+          "name": { "type": "string", "minLength": 1 },
+          "entity_type": { "type": "string", "enum": ["公司", "个人", "合伙企业", "其他"] },
+          "registry_id": { "type": "string" }
+        }
+      }
+    },
+    "clauses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["clause_id", "text", "level"],
+        "properties": {
+          "clause_id": {
+            "type": "string",
+            "pattern": "^[0-9]+(\\.[0-9]+)*$",
+            "description": "形如 3 / 3.2 / 3.2.1，禁止出现未编号条款"
+          },
+          "title": { "type": "string" },
+          "text": { "type": "string", "minLength": 1 },
+          "level": { "type": "integer", "minimum": 1, "maximum": 4 },
+          "parent_id": { "type": ["string", "null"] },
+          "risk_level": {
+            "type": "string",
+            "enum": ["none", "low", "medium", "high"],
+            "default": "none"
+          },
+          "risk_basis": {
+            "type": "string",
+            "description": "判定该风险等级的依据，high 必填"
+          }
+        }
+      }
+    },
+    "memo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "summary": { "type": "string" },
+        "risk_items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["clause_id", "level", "issue", "suggestion"],
+            "properties": {
+              "clause_id": { "type": "string" },
+              "level": { "type": "string", "enum": ["高", "中", "低"] },
+              "issue": { "type": "string" },
+              "suggestion": { "type": "string" },
+              "must_fix": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

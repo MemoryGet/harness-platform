@@ -1,0 +1,342 @@
+# 样例 2/3 —— 合同条款审查
+# 载体：text (条款树 JSON) · 特点：机检与模型评审混合，强制人工签署
+# 压测意义：验证内核能否承载"高主观性 + 强人工闸门 + 长引用链"这一类业务
+
+dsl_version: "0.1"
+kind: CriterionPack
+
+metadata:
+  id: legal-contract-review
+  name: 合同条款审查
+  industry: legal
+  version: 1.0.0
+  owner: 法务部
+  description: 商务合同（销售/劳动/许可/保密）的一审规范，输出风险备忘与修订建议
+
+artifact:
+  kind: text
+  format: clause_tree_json
+  schema_ref: schemas/clause_tree.json
+
+evidence:
+  - doc_tree        # 解析后的文档结构（标题层级、段落、表格）
+  - citation_map    # 论断 → 条款编号 的引用关系
+  - risk_items      # 风险扫描结果
+
+knowledge:
+  sources:
+    - id: kb-cn-contract
+      name: 民法典合同编与内部审查指引
+      source_type: statute
+      authority: statutory
+      owner: 法务部
+      pin_policy: pin_at_publish
+      required: true
+  # 迁移期保持 false（存量判据尚未补依据）；全量补齐后应置为 true
+  require_basis_for_block: false
+
+workflow:
+  steps:
+    - id: parse
+      uses: tool.doc_parse
+      output: doc_tree
+    - id: segment
+      uses: tool.clause_segment
+      output: clauses
+      depends_on: [parse]
+    - id: extract_parties
+      uses: agent.entity_extractor
+      output: parties
+      depends_on: [segment]
+    - id: risk_scan
+      uses: agent.risk_scanner
+      output: risk_items
+      depends_on: [segment, extract_parties]
+    - id: draft_memo
+      uses: agent.memo_writer
+      output: memo
+      depends_on: [risk_scan]
+    - id: export_pack
+      uses: tool.review_pack_export
+      output: review_pack
+      depends_on: [draft_memo]
+
+slots:
+  # ── 输入判据 ─────────────────────────────────────────────────
+  input:
+    - id: doc_readable
+      title: 文档可解析
+      ask: "扫描件的识别质量够不够？低于多少要退回重扫？"
+      rationale: "OCR 置信度低会导致条款漏读，比读错更危险。"
+      after: parse
+      check:
+        type: rule
+        fn: text.parse_quality
+        assert:
+          - field: ocr_confidence
+            op: ">="
+            value: 0.85
+            message: "OCR 置信度不足，请提供可复制文本或重新扫描"
+      severity: block
+
+    - id: contract_type_known
+      title: 合同类型已明确
+      ask: "这份合同属于哪一类？不同类型查的条款不一样。"
+      rationale: "类型决定必检条款清单，类型不明只能全量检查，成本高且易漏。"
+      after: parse
+      check:
+        type: rule
+        fn: input.get
+        params: { key: contract_type }
+        assert:
+          - field: contract_type
+            op: in
+            value: [sales, labor, license, nda]
+            message: "未声明合同类型或类型不在支持列表"
+      severity: block
+
+    - id: jurisdiction_declared
+      title: 适用法域已声明
+      ask: "这份合同适用哪个法域？"
+      rationale: "法域决定禁止性条款清单与争议解决方式。"
+      after: parse
+      check:
+        type: rule
+        fn: input.get
+        params: { key: jurisdiction }
+        assert:
+          - field: jurisdiction
+            op: in
+            value: [CN, EU, US, HK]
+            message: "未声明适用法域"
+      severity: block
+
+  # ── 过程判据 ─────────────────────────────────────────────────
+  process:
+    - id: all_clauses_numbered
+      title: 条款编号完整
+      ask: "审查前是否必须先把条款编号补齐？"
+      rationale: "后续所有论断都要引用条款号，编号缺失会导致引用链断裂。"
+      after: segment
+      check:
+        type: rule
+        fn: clause.metrics
+        assert:
+          - field: unnumbered
+            op: "=="
+            value: 0
+            message: "存在未编号条款，无法建立引用"
+      severity: block
+
+    - id: parties_extracted
+      title: 主体信息已提取
+      ask: "是否必须先识别签约主体？"
+      rationale: "主体资格与制裁名单校验依赖主体信息，缺了就无法做合规判断。"
+      after: extract_parties
+      check:
+        type: rule
+        fn: run.steps_completed
+        assert:
+          - field: completed
+            op: contains
+            value: extract_parties
+            message: "跳过了主体信息提取"
+      severity: block
+
+    - id: citation_closed
+      title: 引用链闭合
+      ask: "备忘里引用的条款必须真实存在吗？"
+      rationale: "引用不存在的条款是法务文档最典型的幻觉表现。"
+      evidence: [citation_map]
+      after: draft_memo
+      check:
+        type: rule
+        fn: text.citation_check
+        assert:
+          - field: dangling_refs
+            op: "=="
+            value: 0
+            message: "存在指向不存在条款的引用"
+          - field: orphan_claims
+            op: "=="
+            value: 0
+            message: "存在没有条款支撑的论断"
+      severity: block
+
+  # ── 合格判据 ─────────────────────────────────────────────────
+  quality:
+    - id: required_clauses_present
+      title: 必检条款齐全
+      ask: "这类合同必须包含哪几条？"
+      rationale: "缺条款是最常见的合同缺陷，且可以直接断言。"
+      after: segment
+      check:
+        type: rule
+        fn: clause.presence
+        params:
+          required: [合同主体, 标的与价款, 履行期限, 违约责任, 争议解决]
+        assert:
+          - field: missing_count
+            op: "=="
+            value: 0
+            message: "存在缺失的必备条款"
+      severity: block
+
+    - id: liability_cap_policy
+      title: 责任限额符合内控
+      ask: "赔偿责任上限最多可以是合同金额的几倍？"
+      rationale: "内控要求责任上限不超过合同金额 3 倍，超出需特批。"
+      basis:
+        - source: kb-cn-contract
+          item: sop-liability-cap-3-2
+          path: 内部审查指引/3.2 责任限额
+          quote: "赔偿责任累计不超过合同金额的三倍"
+          required: true
+      after: segment
+      check:
+        type: rule
+        fn: clause.value_check
+        params: { clause_key: liability_cap }
+        assert:
+          - field: cap_multiple
+            op: "<="
+            value: 3
+            message: "责任限额超过合同金额 3 倍，需走特批"
+      severity: block
+
+    - id: payment_terms_clear
+      title: 付款条件明确
+      ask: "付款节点与账期必须写到什么程度才算清楚？"
+      rationale: "付款条件模糊是后续纠纷的主要来源。"
+      after: segment
+      check:
+        type: rule
+        fn: clause.presence
+        params:
+          required: [付款节点, 账期, 发票类型]
+        assert:
+          - field: missing_count
+            op: "=="
+            value: 0
+            message: "付款条件不完整"
+      severity: block
+
+    - id: risk_memo_quality
+      title: 风险备忘质量
+      ask: "一份合格的风险备忘必须写清什么？"
+      rationale: "备忘给业务方看，必须可执行：分级 + 依据 + 修改建议。"
+      basis:
+        - source: kb-cn-contract
+          item: sop-memo-rubric-5-2
+          path: 内部审查指引/5.2 风险备忘写作要求
+          quote: "风险备忘须逐条给出风险等级（高/中/低）、所依条款编号、可执行的修改建议"
+          required: true
+      after: draft_memo
+      check:
+        type: judge
+        mode: absolute
+        model: llm-default
+        rubric:
+          - 每条风险是否有明确等级（高/中/低）
+          - 每条风险是否引用了具体条款号
+          - 每条风险是否给出可执行的修改建议
+          - 是否区分了"必须改"与"建议改"
+        scale: 1-5
+        pass_if: "score >= 4"
+        samples: 3
+        grounding:
+          mode: cite_required
+          sources: [kb-cn-contract]
+          min_citations: 1
+          on_invalid_citation: fail
+          allow_quote_fuzzy: false
+      severity: block
+
+    - id: unusual_clause_flagged
+      title: 异常条款已标注
+      ask: "哪些条款属于非常规、需要特别提示？"
+      rationale: "非常规条款不代表违法，但业务方必须知情。"
+      after: risk_scan
+      check:
+        type: judge
+        mode: absolute
+        model: llm-default
+        rubric:
+          - 是否识别出偏离行业惯例的条款
+          - 是否说明了偏离点与潜在影响
+        scale: 1-5
+        pass_if: "score >= 3"
+        samples: 3
+      severity: warn
+
+  # ── 否决判据 ─────────────────────────────────────────────────
+  veto:
+    - id: prohibited_clause
+      title: 无禁止性条款
+      ask: "哪些条款一旦出现就必须直接停手？"
+      rationale: "无限责任、放弃诉讼权、单方任意解除等条款属于红线。"
+      basis:
+        - source: kb-cn-contract
+          item: civil-code-497
+          path: 民法典/第三编合同/第二章合同的订立/第497条
+          quote: "提供格式条款一方不合理地免除或者减轻其责任、加重对方责任、限制对方主要权利"
+          required: true
+        - source: kb-cn-contract
+          item: sop-prohibited-terms-4-1
+          path: 内部审查指引/4.1 禁止性条款清单
+          quote: "以下条款一律不得签署：无限责任、放弃诉讼权利、单方任意解除、永久排他"
+          required: false
+      after: risk_scan
+      check:
+        type: rule
+        fn: compliance.prohibited_terms
+        params:
+          list: [无限责任, 放弃诉讼权利, 单方任意解除, 永久排他]
+        assert:
+          - field: hits
+            op: "=="
+            value: 0
+            message: "存在禁止性条款，必须立即上报法务负责人"
+      severity: veto
+
+    - id: sanction_screen
+      title: 主体不在制裁名单
+      ask: "签约主体需要做制裁名单筛查吗？"
+      rationale: "与受制裁主体签约可能导致合同无效并触发合规责任。"
+      evidence: [risk_items]
+      after: extract_parties
+      check:
+        type: rule
+        fn: compliance.sanction_check
+        assert:
+          - field: matched
+            op: "=="
+            value: false
+            message: "签约主体命中制裁名单"
+      severity: veto
+
+    - id: counsel_signoff
+      title: 法务负责人签署
+      ask: "谁有权最终放行这份合同？"
+      rationale: "红线条款与高风险备忘必须由人承担责任，机器不出终审意见。"
+      after: export_pack
+      check:
+        type: gate
+        approver_role: 法务负责人
+        timeout_min: 240
+        on_timeout: escalate
+        must_see:
+          - evidence.citation_map
+          - check_results[quality.risk_memo_quality]
+          - check_results[veto.prohibited_clause]
+        prompt: "确认本合同审查结论可提交业务方？"
+      severity: veto
+
+policy:
+  on_fail: escalate
+  max_retries: 0
+
+eval:
+  golden_set: golden/legal.yaml
+  min_pass_rate: 0.95
+  max_veto: 0

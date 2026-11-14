@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schemas/triage_result.json",
+  "title": "TriageResult",
+  "description": "客服工单分派结果。下游工单系统按此结构消费，缺字段会直接报错。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ticket_id", "route", "priority", "labels", "sla", "reply_draft"],
+  "properties": {
+    "ticket_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "route": {
+      "type": "string",
+      "enum": ["售前咨询组", "售后一组", "售后二组", "账务组", "技术支撑组"]
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["P0", "P1", "P2", "P3"],
+      "description": "P0 立即/P1 4h/P2 24h/P3 72h"
+    },
+    "labels": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "confidence"],
+      "properties": {
+        "category": { "type": "string", "minLength": 1 },
+        "sub_category": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "sla": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["started", "deadline", "minutes_left"],
+      "properties": {
+        "started": { "type": "boolean" },
+        "deadline": { "type": "string", "format": "date-time" },
+        "minutes_left": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "reply_draft": {
+      "type": "string",
+      "minLength": 10,
+      "description": "对客回复草稿，禁止包含未脱敏隐私字段"
+    },
+    "escalation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": { "type": "boolean" },
+        "reason": { "type": "string" },
+        "to_role": { "type": "string" }
+      }
+    }
+  }
+}
