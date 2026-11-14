@@ -3,6 +3,7 @@ from pathlib import Path
 
 from hpx.checkers.rule import check_rule
 from hpx.dsl.loader import DslError, load_pack
+from hpx.knowledge.validate import validate_basis
 from hpx.model.pack import RuleChecker
 
 
@@ -32,6 +33,15 @@ class S1SliceTests(unittest.TestCase):
             with self.assertRaises(DslError) as caught:
                 load_pack(path)
             self.assertIn("dsl_version", str(caught.exception))
+
+    def test_knowledge_basis_and_bad_quote(self):
+        pack = load_pack(ROOT / "examples/legal-contract-review.yaml")
+        validate_basis(pack, ROOT / "knowledge")
+        broken = pack.model_copy(deep=True)
+        broken.slots.quality[0].basis = [{"source": "kb-cn-contract", "item": "civil-code-577",
+                                          "quote": "不存在的原文"}]
+        with self.assertRaisesRegex(DslError, "V-KB-03"):
+            validate_basis(broken, ROOT / "knowledge")
 
 
 if __name__ == "__main__":

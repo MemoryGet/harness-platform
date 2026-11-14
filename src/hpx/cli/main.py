@@ -5,9 +5,18 @@ import typer
 
 from hpx.checkers.rule import check_rule
 from hpx.dsl.loader import DslError, load_pack
+from hpx.knowledge.validate import validate_basis
 from hpx.model.pack import RuleChecker
 
 app = typer.Typer(help="判据包验证与单条判据调试")
+
+
+def knowledge_directory(path: Path) -> Path:
+    for root in (path.resolve().parent, *path.resolve().parents):
+        candidate = root / "knowledge"
+        if candidate.is_dir():
+            return candidate
+    return path.resolve().parent / "knowledge"
 
 
 @app.command()
@@ -16,6 +25,7 @@ def validate(paths: list[Path] = typer.Argument(..., help="一个或多个判据
     for path in paths:
         try:
             pack = load_pack(path)
+            validate_basis(pack, knowledge_directory(path))
             typer.echo(f"通过 {path} ({pack.metadata.id})")
         except DslError as exc:
             typer.echo(f"失败 {exc}", err=True)
