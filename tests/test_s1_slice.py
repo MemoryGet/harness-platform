@@ -12,6 +12,7 @@ from hpx.checkers.record import input_get, record_field_check
 from hpx.dsl.loader import DslError, load_pack
 from hpx.knowledge.validate import validate_basis
 from hpx.model.pack import JudgeChecker, RuleChecker, SchemaChecker
+from hpx.model import CriterionPack
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -141,6 +142,19 @@ class S1SliceTests(unittest.TestCase):
         channel = next(item for item in pack.slots.input if item.id == "channel_supported")
         self.assertTrue(check_rule(channel.check, input_get({"channel": "web"}, "channel"))[0]["ok"])
         self.assertFalse(check_rule(channel.check, input_get({"channel": "fax"}, "channel"))[0]["ok"])
+
+    def test_veto_cannot_use_judge(self):
+        data = load_pack(ROOT / "examples/video-shortform.yaml").model_dump(by_alias=True)
+        data["slots"]["veto"][0]["check"] = {
+            "type": "judge", "rubric": ["合规"], "pass_if": "score >= 4"}
+        with self.assertRaisesRegex(ValueError, "judge 不允许用于 veto"):
+            CriterionPack.model_validate(data)
+
+    def test_follow_latest_cannot_be_basis(self):
+        pack = load_pack(ROOT / "examples/legal-contract-review.yaml").model_copy(deep=True)
+        pack.knowledge["sources"][0]["pin_policy"] = "follow_latest"
+        with self.assertRaisesRegex(DslError, "V-KB-04"):
+            validate_basis(pack, ROOT / "knowledge")
 
 
 if __name__ == "__main__":

@@ -131,6 +131,8 @@ class CriterionPack(StrictModel):
                 ids.append(criterion.id)
                 if criterion.after not in steps:
                     raise ValueError(f"判据 {criterion.id} 的 after={criterion.after} 不在 workflow.steps 中")
+                if slot == "veto" and isinstance(criterion.check, JudgeChecker):
+                    raise ValueError(f"判据 {criterion.id}: judge 不允许用于 veto 槽位")
         if len(ids) != len(set(ids)):
             raise ValueError("slots 包含重复的判据 id")
         return self

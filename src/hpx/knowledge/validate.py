@@ -30,10 +30,18 @@ def validate_basis(pack: CriterionPack, directory: Path) -> None:
             sources[source_id] = data
     for slot in ("input", "process", "quality", "veto"):
         for criterion in getattr(pack.slots, slot):
+            grounding = getattr(criterion.check, "grounding", None) or {}
+            for source_id in grounding.get("sources", []):
+                if source_id not in declarations:
+                    raise DslError(criterion.id, f"V-KB-01: grounding 引用了未声明知识源 {source_id}")
+            if grounding.get("mode") == "cite_required" and grounding.get("min_citations", 0) < 1:
+                raise DslError(criterion.id, "V-KB-07: cite_required 至少需要一条引用")
             for basis in criterion.basis:
                 source_id = basis.get("source")
                 if source_id not in declarations:
                     raise DslError(criterion.id, f"V-KB-01: 未声明知识源 {source_id}")
+                if declarations[source_id].get("pin_policy") == "follow_latest":
+                    raise DslError(criterion.id, f"V-KB-04: follow_latest 知识源不能作为判定依据：{source_id}")
                 if source_id not in sources:
                     raise DslError(criterion.id, f"V-KB-02: 找不到本地知识源 {source_id}")
                 candidates = [item for item in sources[source_id].get("items", [])
