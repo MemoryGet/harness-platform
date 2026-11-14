@@ -28,13 +28,15 @@ harness-platform/
     │   ├── criterion.py           # Criterion / Severity
     │   ├── checker.py             # 四类 Checker 的判别联合
     │   ├── result.py              # CheckResult / RunReport
-    │   └── ir.py                  # IR 模型（编译产物）
+    │   ├── ir.py                  # IR 模型（编译产物）
+    │   └── composite.py           # CompositeSpec / Part / Subtask（复合任务）
     ├── dsl/                       # ② 解析与校验
     │   ├── loader.py              # YAML → 模型，含业务化错误信息
     │   ├── errors.py              # DslError(pack_id, path, code, message, hint)
     │   └── expr.py                # applies_when 表达式解析与求值
     ├── compile/                   # ③ 编译 DSL → IR
     │   ├── compiler.py
+    │   ├── subtasks.py            # pack 版本解析 + 输入契约匹配（V-COMP-01~07）
     │   └── topo.py                # 拓扑排序
     ├── knowledge/                 # ③b 知识绑定（依据层，S1 起）
     │   ├── source.py              # 加载 KnowledgeSource、计算 checksum
@@ -61,6 +63,7 @@ harness-platform/
     ├── runtime/                   # ⑤ 执行器
     │   ├── runner.py
     │   ├── state.py               # 状态机 + 事件溯源
+    │   ├── subrun.py              # 子 run 调度：并发上限、缓存键、--only 重跑
     │   ├── tool_gateway.py        # 壳侧工具收口：白名单 + 注入 pin + 审计留痕
     │   └── store.py               # 存储抽象（SQLite / Postgres）
     ├── evaluate/                  # ⑥ 验收

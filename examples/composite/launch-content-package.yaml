@@ -1,0 +1,274 @@
+# 样例 4/4 —— 复合任务：新车上市内容包
+# 载体：composite（timeline + text + record）
+# 压测意义：验证内核能否承载「一个业务 = 多个子任务组合 + 跨产物一致性判定」
+# 说明：launch-copy@1.0.0 为示意包（S0 尚未落地），另两个 pack 在 examples/ 中真实存在
+
+dsl_version: "0.1"
+kind: CriterionPack
+
+metadata:
+  id: launch-content-package
+  name: 新车上市内容包
+  industry: marketing
+  version: 1.0.0
+  owner: 品牌内容中台
+  description: 一次上市活动交付三件套——主视频、图文稿、法务审查报告，三者在价格与参数口径上必须一致
+
+artifact:
+  kind: composite
+  parts:
+    - slot: video_cut
+      kind: timeline
+      format: otio
+      required: true
+    - slot: article
+      kind: text
+      format: markdown
+      required: true
+    - slot: legal_report
+      kind: record
+      format: json
+      required: true
+
+knowledge:
+  sources:
+    - id: kb-brand-ad
+      name: 品牌对外物料规范与广告法合规要点
+      source_type: statute
+      authority: statutory
+      owner: 品牌部 / 法务部
+      pin_policy: pin_at_publish
+      required: true
+  require_basis_for_block: false
+
+# ── 子任务组合：父包只声明契约，不看子包内部 ──────────────────
+subtasks:
+  - id: video
+    pack: video-shortform@~1.1
+    inputs:
+      platforms: "${run.inputs.platforms}"
+      raw_footage: "${run.inputs.footage_uri}"
+      model_spec: "${run.inputs.spec_uri}"
+    produces: video_cut
+    acceptance: {min_pass_rate: 0.9, max_veto: 0}
+    on_fail: block
+    timeout_min: 90
+
+  - id: copy
+    pack: launch-copy@1.0.0              # 示意包，S0 待落地
+    inputs:
+      model_spec: "${run.inputs.spec_uri}"
+      tone: "${run.inputs.tone}"
+      price_table: "${run.inputs.price_table_uri}"
+    produces: article
+    acceptance: {min_pass_rate: 0.9, max_veto: 0}
+    on_fail: block
+    timeout_min: 30
+
+  - id: legal
+    pack: legal-contract-review@1.0.0
+    inputs:
+      contract: "${run.inputs.legal_doc_uri}"
+      contract_type: sales
+      jurisdiction: CN
+    produces: legal_report
+    acceptance: {min_pass_rate: 0.95, max_veto: 0}
+    on_fail: block
+    depends_on: [copy]                   # 图文定稿后才能做条款核对
+    timeout_min: 240
+
+# ── 父层步骤：全部子任务进入终态后执行 ──────────────────────
+workflow:
+  steps:
+    - id: aggregate
+      uses: core.aggregate_parts
+      output: bundle
+      config:
+        parts: [video_cut, article, legal_report]
+    - id: cross_extract
+      uses: tool.cross_extract
+      output: cross_facts
+      depends_on: [aggregate]
+      config:
+        fields: [price, range_km, accel_sec]
+
+slots:
+  # ── 输入判据 ─────────────────────────────────────────────
+  input:
+    - id: platform_list_declared
+      title: 投放平台已声明
+      ask: "这次上市内容要投哪几个平台？"
+      rationale: "平台决定画幅、时长与字幕规范，未声明无法出片。"
+      after: aggregate
+      check:
+        type: rule
+        fn: input.require_keys
+        params: { keys: [platforms, footage_uri, spec_uri] }
+        assert:
+          - field: missing_count
+            op: "=="
+            value: 0
+            message: "缺少投放平台、素材或车型规格说明"
+      severity: block
+
+    - id: legal_doc_attached
+      title: 法务底稿已附
+      ask: "有没有可核对的合同/条款底稿？"
+      rationale: "法务审查子任务没有底稿只能空跑，等于没有把关。"
+      after: aggregate
+      check:
+        type: rule
+        fn: input.require_keys
+        params: { keys: [legal_doc_uri] }
+        assert:
+          - field: missing_count
+            op: "=="
+            value: 0
+            message: "未附法务底稿，法务审查无法执行"
+      severity: block
+
+  # ── 过程判据 ─────────────────────────────────────────────
+  process:
+    - id: legal_after_copy
+      title: 法务在图文定稿之后
+      ask: "法务核对必须在图文定稿之后做吗？"
+      rationale: "先审稿再改稿会漏掉改动，条款核对必须针对定稿版本。"
+      after: aggregate
+      check:
+        type: rule
+        fn: run.subtask_order
+        params: { before: copy, after: legal }
+        assert:
+          - field: order_ok
+            op: "=="
+            value: true
+            message: "执行顺序错误：法务审查早于图文定稿"
+      severity: block
+
+  # ── 合格判据 ─────────────────────────────────────────────
+  quality:
+    - id: parts_complete
+      title: 三件套齐全
+      ask: "上市内容包必须包含哪几件？"
+      rationale: "缺任何一件都无法成包发布，且下游排期会空等。"
+      after: aggregate
+      check:
+        type: rule
+        fn: composite.parts_present
+        params:
+          slots: [video_cut, article, legal_report]
+        assert:
+          - field: missing_count
+            op: "=="
+            value: 0
+            message: "内容包不完整，缺少交付件"
+      severity: block
+
+    - id: price_consistency
+      title: 价格口径一致
+      ask: "视频口播、图文、合同里的价格必须一致吗？"
+      rationale: "多渠道价格不一致是最常见的对外事故，且会被截图传播。"
+      basis:
+        - source: kb-brand-ad
+          item: brand-pricing-disclosure-2-1
+          path: 品牌规范/2.1 价格披露
+          quote: "所有对外物料的价格必须与当期官方指导价一致"
+          required: true
+      after: cross_extract
+      check:
+        type: rule
+        fn: composite.cross_check
+        params:
+          extractors:
+            video_cut: media.extract_price_from_transcript
+            article: text.extract_price
+            legal_report: "record.get_field:contract_price"
+          tolerance: 0
+        assert:
+          - field: consistent
+            op: "=="
+            value: true
+            message: "三处价格不一致，请核对当期指导价后重新生成"
+      severity: block
+
+    - id: spec_consistency
+      title: 核心参数一致
+      ask: "续航、加速这些参数在各渠道能不一样吗？"
+      rationale: "参数差异属于事实性错误，除非是单位换算。"
+      basis:
+        - source: kb-brand-ad
+          item: brand-spec-consistency-3-4
+          path: 品牌规范/3.4 车型参数一致性
+          quote: "续航、零百加速、车身尺寸等核心参数在各渠道物料中必须一致"
+          required: true
+      after: cross_extract
+      check:
+        type: rule
+        fn: composite.cross_check
+        params:
+          extractors:
+            video_cut: media.extract_specs_from_transcript
+            article: text.extract_specs
+          tolerance_pct: 0.5
+        assert:
+          - field: consistent
+            op: "=="
+            value: true
+            message: "核心参数不一致，超出单位换算可解释范围"
+      severity: warn
+
+    - id: total_duration
+      title: 总时长受控
+      ask: "主视频总时长上限是多少？"
+      rationale: "超过 90 秒在信息流投放会被截断，且完播率骤降。"
+      after: aggregate
+      check:
+        type: rule
+        fn: composite.sum_metric
+        params:
+          slots: [video_cut]
+          field: duration_sec
+        assert:
+          - field: total
+            op: "<="
+            value: 90
+            message: "主视频超过 90 秒"
+      severity: block
+
+  # ── 否决判据 ─────────────────────────────────────────────
+  veto:
+    - id: ad_law_compliance
+      title: 无绝对化用语
+      ask: "哪些话一旦出现就绝对不能发？"
+      rationale: "绝对化用语违反广告法第九条，属于行政处罚高发项。"
+      basis:
+        - source: kb-brand-ad
+          item: ad-law-absolute-terms-9
+          path: 广告法/第二章广告内容准则/第九条
+          quote: '广告不得使用"国家级""最高级""最佳"等用语'
+          required: true
+      after: cross_extract
+      check:
+        type: rule
+        fn: composite.cross_check
+        params:
+          extractors:
+            video_cut: media.extract_claims_from_transcript
+            article: text.extract_claims
+          blocklist: [国家级, 最高级, 最佳, 第一, 唯一, 顶级]
+        assert:
+          - field: violations
+            op: "=="
+            value: 0
+            message: "出现绝对化用语，必须替换后重新提交"
+      severity: veto
+
+policy:
+  on_fail: escalate
+  max_retries: 0
+  max_parallel: 3                      # 子任务并发上限
+
+eval:
+  golden_set: golden/launch-content-package.yaml
+  min_pass_rate: 0.95
+  max_veto: 0

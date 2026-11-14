@@ -1,0 +1,51 @@
+# 知识源样例 —— 品牌规范 + 广告法（供复合任务样例使用）
+# 结构规范见 docs/06-knowledge.md；复合任务样例见 examples/composite/launch-content-package.yaml
+
+kb_version: "0.1"
+kind: KnowledgeSource
+
+source:
+  id: kb-brand-ad
+  name: 品牌对外物料规范与广告法合规要点
+  source_type: statute
+  authority: statutory
+  owner: 品牌部 / 法务部
+  pin_policy: pin_at_publish
+
+snapshot:
+  id: kb-snap-2026-11-01
+  built_at: 2026-11-01T00:00:00+08:00
+  checksum: null
+
+items:
+  # ── 法定依据（可支撑 veto）─────────────────────────────
+  - id: ad-law-absolute-terms-9
+    path: 广告法/第二章广告内容准则/第九条
+    title: 绝对化用语禁止
+    body: 广告不得使用"国家级""最高级""最佳"等用语。对外宣传物料中出现绝对化用语，须在发布前全部替换。
+    authority: statutory
+    effective_from: 2021-04-29
+    effective_to: null
+    supersedes: null
+    tags: [广告法, 绝对化用语, 红线]
+
+  # ── 内部强制规范（支撑 block）──────────────────────────
+  - id: brand-pricing-disclosure-2-1
+    path: 品牌规范/2.1 价格披露
+    title: 价格披露口径
+    body: 所有对外物料的价格必须与当期官方指导价一致，视频口播、图文正文、合同附件三处口径不得出现差异。
+    authority: internal_mandatory
+    effective_from: 2025-09-01
+    effective_to: null
+    supersedes: null
+    tags: [价格, 对外物料]
+
+  - id: brand-spec-consistency-3-4
+    path: 品牌规范/3.4 车型参数一致性
+    title: 车型参数一致性
+    body: 续航、零百加速、车身尺寸等核心参数在各渠道物料中必须一致，允许的表述差异仅限于单位换算。
+    authority: internal_mandatory
+    effective_from: 2025-09-01
+    effective_to: null
+    supersedes: null
+    tags: [参数, 一致性]

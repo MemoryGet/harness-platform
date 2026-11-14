@@ -412,3 +412,92 @@ knowledge:
 1. **凭证不入 DSL。** 只写 `server` 名字，凭证由连接器注册表按租户加密存储——判据包会被导出、分享、提交 git。
 2. **`fetch_full_text: false` 的源不得被 `basis` 引用**（只索引片段等同 `follow_latest`，按 V-KB-04 处理）。
 3. **`provider` 只描述"怎么同步进来"，不描述"运行时怎么读"。** 判定一律读本地快照；内核的 `Provider` 接口不暴露 `search`，从类型层面禁止判定链路做模糊检索。
+
+## 12. 复合任务（`subtasks`）
+
+完整设计见 [08-composition.md](08-composition.md)。本节只定 DSL 契约。
+
+### 12.1 产物变为复合
+
+```yaml
+artifact:
+  kind: composite
+  parts:
+    - slot: video_cut
+      kind: timeline
+      format: otio
+      required: true
+    - slot: article
+      kind: text
+      format: markdown
+      required: true
+```
+
+`kind: composite` 时 `parts` 必填；每个 `slot` 全局唯一，且必须被子任务的 `produces` 覆盖（V-COMP-01）。
+
+### 12.2 `subtasks[]` 字段
+
+```yaml
+subtasks:
+  - id: video
+    pack: video-shortform@~1.1      # 必填，可含版本约束
+    inputs:                          # 必填，映射到子包的 input 槽位
+      platforms: "${run.inputs.platforms}"
+    produces: video_cut              # 必填，对应 artifact.parts[].slot
+    acceptance:                      # 可选，父对子的验收门槛
+      min_pass_rate: 0.9
+      max_veto: 0
+    on_fail: block                   # block | warn | continue
+    depends_on: []                   # 可选，只表达顺序，不传数据
+    timeout_min: 90
+    foreach: null                    # 可选，同构扇出
+    as: null                         # foreach 时的循环变量名
+    collect: list                    # list | first | merge
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `id` | 是 | 包内唯一；判据可用 `after: subtask:<id>` 挂到子任务终态之后 |
+| `pack` | 是 | `id@版本约束`；生产包不得省略版本（V-COMP-05） |
+| `inputs` | 是 | 必须能填满子包 `input` 槽位的必填判据，否则编译失败（V-COMP-03） |
+| `produces` | 是 | 必须是 `artifact.parts[].slot` 之一 |
+| `acceptance` | 否 | 父对子的判定标准，与子包自身的 `eval` 相互独立 |
+| `on_fail` | 否 | 默认 `block`；`warn`/`continue` 要求对应 part `required: false`（V-COMP-02） |
+| `depends_on` | 否 | 只表达执行顺序；子任务间传数据必须走父包 `inputs` |
+| `foreach` | 否 | 必须是可静态求值的列表（`run.inputs.*` 或常量） |
+| `collect` | 否 | `list`（默认）/ `first` / `merge`，决定聚合判据可访问的字段 |
+
+### 12.3 失败传播（不可配置的部分）
+
+| 子任务结果 | 上浮为 |
+|---|---|
+| `veto` | 父 `veto`（**强制**，无开关） |
+| `block` / `failed` | 按父 `on_fail` |
+| `warn` | 仅记录，不上浮 |
+
+### 12.4 IR 表达
+
+子任务编译为独立节点类型，与 `steps` 分属两层：
+
+```json
+"subtasks": [
+  {"id": "video", "kind": "subrun", "pack": {"id": "video-shortform", "version": "1.1.2"},
+   "produces": "video_cut", "depends_on": [], "on_fail": "block",
+   "acceptance": {"min_pass_rate": 0.9, "max_veto": 0}}
+],
+"aggregate": {"after": ["video", "copy", "legal"], "parts": ["video_cut", "article", "legal_report"]}
+```
+
+编译规则：子包版本在编译期解析为确定值写入 IR；父包的 `workflow.steps` 排在所有 `subrun` 节点之后。
+
+### 12.5 校验规则
+
+| 编号 | 规则 | 级别 |
+|---|---|---|
+| V-COMP-01 | `produces` 与 `parts[].slot` 双向一一覆盖 | error |
+| V-COMP-02 | `on_fail: warn/continue` 的子任务，对应 part 必须 `required: false` | error |
+| V-COMP-03 | 子任务 `inputs` 必须能填满子包 `input` 槽位必填项 | error |
+| V-COMP-04 | 被引用 pack 不得含 `subtasks`（禁止三层嵌套） | error |
+| V-COMP-05 | 生产包不得省略 `pack` 版本号 | error |
+| V-COMP-06 | `depends_on` 不得成环、不得悬空 | error |
+| V-COMP-07 | `foreach` 必须可静态求值，不得引用其他子任务产物 | error |

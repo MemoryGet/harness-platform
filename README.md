@@ -24,18 +24,22 @@
 | [docs/05-decisions.md](docs/05-decisions.md) | 关键决策记录与待定问题 | 全员 |
 | [docs/06-knowledge.md](docs/06-knowledge.md) | 知识库绑定：三种用途、快照锁定、引用闭环、11 条校验规则 | 后端 / 判据设计 |
 | [docs/07-knowledge-integration.md](docs/07-knowledge-integration.md) | 外部知识库接入：MCP 放哪层、Provider 接口、同步与权限 | 架构 / 后端 |
-| [examples/](examples/) | 三份跨行业判据 YAML 样例 | 全员必读 |
+| [docs/08-composition.md](docs/08-composition.md) | 复合任务：子任务组合、汇总判据、失败传播、不支持清单 | 架构 / 判据设计 |
+| [examples/](examples/) | 四份判据 YAML 样例（含一份复合任务） | 全员必读 |
 | [knowledge/](knowledge/) | 知识源样例（法条 + 内部指引 + 案例库） | 判据设计 |
 
-## 三份样例就是压测用例
+## 样例就是压测用例
 
 | 样例 | 行业 | 产物类型 | 判据特点 |
 |---|---|---|---|
 | `video-shortform.yaml` | 短视频批量出片 | `timeline` (OTIO) | 技术指标可完全机检（响度、字幕、规格、AI 披露） |
 | `legal-contract-review.yaml` | 合同条款审查 | `text` (条款树) | 部分机检 + 大量模型评审 + 强制人工闸门 |
 | `support-ticket-triage.yaml` | 客服工单分派 | `record` (JSON) | 结构化输出可断言 + SLA 时限约束 |
+| `composite/launch-content-package.yaml` | 新车上市内容包 | `composite`（timeline + text + record） | 3 个子任务组合 + 跨产物一致性 + 法定否决 |
 
-**压测通过标准（S4 Gate）**：三份 YAML 在内核代码**零修改**的前提下全部可以 validate + compile + run，且每份至少有 3 条检查器真实执行。若某份需要改内核 schema，说明抽象错误——现在改成本最低。
+**压测通过标准（S4 Gate）**：前三份 YAML 在内核代码**零修改**的前提下全部可以 validate + compile + run，且每份至少有 3 条检查器真实执行。若某份需要改内核 schema，说明抽象错误——现在改成本最低。
+
+第四份是复合任务样例，不参与 S4 的三行业判定，它是 **S2 复合能力**的验收对象：验证"父包只声明契约、子包黑盒、汇总判据跨产物"这条路走得通。
 
 ## 三条不可违背的架构铁律
 
@@ -87,16 +91,20 @@ harness-platform/
 │   ├── 02-architecture.md          三分离、五件必定义、存储模型
 │   ├── 03-dsl-spec.md              DSL v0.1 规范（四槽位 + 四类检查器 + IR + 知识绑定）
 │   ├── 04-core-skeleton.md         内核目录结构、接口签名、CLI 命令
-│   ├── 05-decisions.md             ADR 决策记录（D-001~D-010）+ 14 个待定问题
+│   ├── 05-decisions.md             ADR 决策记录（D-001~D-011）+ 16 个待定问题
 │   ├── 06-knowledge.md             知识库绑定：三种用途、快照锁定、引用闭环
-│   └── 07-knowledge-integration.md 外部知识库接入：MCP 位置、Provider、同步与权限
+│   ├── 07-knowledge-integration.md 外部知识库接入：MCP 位置、Provider、同步与权限
+│   └── 08-composition.md           复合任务：子任务组合、汇总判据、失败传播
 ├── examples/
 │   ├── video-shortform.yaml        样例 1 · timeline · 18 条判据
 │   ├── legal-contract-review.yaml  样例 2 · text · 14 条判据（3 条挂知识依据）
-│   └── support-ticket-triage.yaml  样例 3 · record · 15 条判据
+│   ├── support-ticket-triage.yaml  样例 3 · record · 15 条判据
+│   └── composite/
+│       └── launch-content-package.yaml  样例 4 · composite · 3 子任务 8 判据
 ├── knowledge/
 │   ├── README.md                   知识源格式说明与演示点
-│   └── legal-cn.yaml               法条 + 内部指引 + 案例库（7 条，含已废止条款）
+│   ├── legal-cn.yaml               法条 + 内部指引 + 案例库（7 条，含已废止条款）
+│   └── brand-ad.yaml               品牌规范 + 广告法（3 条，供复合样例使用）
 ├── golden/
 │   ├── README.md                   黄金集构建规范
 │   └── video.yaml                  7 条 case（legal / support 待 S0 补齐）

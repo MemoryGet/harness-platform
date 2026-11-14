@@ -90,6 +90,7 @@ S4 是生死关。如果内核只能跑通一个行业，你做的不是平台�
    - `hpx resume <run_id> --decision approve|reject --note "..."`
 4. 状态存储：SQLite（本地）→ Postgres（S6 换）。**表结构第一天就按多租户设计**（见架构文档）。
 5. 失败策略：`policy.on_fail` 支持 `retry(n)` / `escalate` / `abort`。
+6. 复合任务：`subtasks` 展开为子 run（先只支持单层、串行），`artifact.kind: composite` 的 parts 聚合，子 run 缓存键 `pack@version + inputs + knowledge_pin_set`。见 `08-composition.md`。
 
 **交付物**
 - `hpx compile examples/video-shortform.yaml -o ir.json`
@@ -100,6 +101,7 @@ S4 是生死关。如果内核只能跑通一个行业，你做的不是平台�
 - `--dry-run` 能正确打印「节点 → 挂载的判据 → 阈值/严重级」清单，人工核对无误。
 - 中断恢复：进程 kill 后 `hpx resume` 能从断点继续，不重复执行已完成节点。
 - IR 两次编译同一份 YAML 结果字节一致（幂等）。
+- 复合任务：改一条子任务判据后重跑父任务，其余子任务命中缓存不重跑；子 `veto` 能上浮父 `aborted`。
 
 **不做**：不做并行分支、不做循环节点（S7 再说）。
 
