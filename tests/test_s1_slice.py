@@ -1,8 +1,12 @@
 import unittest
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 from hpx.checkers.rule import check_rule
 from hpx.checkers.judge import JudgeService, ModelTarget
+from hpx.checkers.media import media_probe
 from hpx.dsl.loader import DslError, load_pack
 from hpx.knowledge.validate import validate_basis
 from hpx.model.pack import JudgeChecker, RuleChecker
@@ -92,6 +96,19 @@ class S1SliceTests(unittest.TestCase):
                                type("Ungrounded", (), {"score": lambda self, *args: {
                                    "score": 5, "citations": [], "uncited_claims": ["claim"]}})())
         self.assertEqual(service.run(checker, "artifact")["status"], "fail")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "requires FFmpeg")
+    def test_media_probe_reads_real_audio_and_video(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.mp4"
+            subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i",
+                            "color=c=black:s=320x240:r=25", "-f", "lavfi", "-i",
+                            "sine=frequency=1000:sample_rate=48000", "-af", "volume=7dB", "-t", "2",
+                            "-c:v", "mpeg4", "-c:a", "aac", "-y", str(path)], check=True)
+            data = media_probe(path)
+            self.assertEqual(data["video"]["width"], 320)
+            self.assertGreater(data["video"]["duration_sec"], 1)
+            self.assertTrue(-15 <= data["audio"]["integrated_lufs"] <= -13)
 
 
 if __name__ == "__main__":

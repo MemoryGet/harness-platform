@@ -5,6 +5,7 @@ import typer
 
 from hpx.checkers.rule import check_rule
 from hpx.checkers.judge import JudgeService, ModelTarget
+from hpx.checkers.media import media_probe
 from hpx.dsl.loader import DslError, load_pack
 from hpx.knowledge.validate import validate_basis
 from hpx.model.pack import JudgeChecker, RuleChecker
@@ -39,7 +40,7 @@ def validate(paths: list[Path] = typer.Argument(..., help="一个或多个判据
 def check(
     criterion: str = typer.Option(..., help="判据 id"),
     evidence: Path | None = typer.Option(None, help="rule 采集函数输出的 JSON 文件"),
-    artifact: Path | None = typer.Option(None, help="judge 待评审的 UTF-8 文本文件"),
+    artifact: Path | None = typer.Option(None, help="rule 的媒体文件或 judge 的 UTF-8 文本文件"),
     models: Path | None = typer.Option(None, help="模型端点配置 JSON；默认 OpenAI"),
     pack: Path = typer.Option(..., help="判据包 YAML"),
 ) -> None:
@@ -52,9 +53,12 @@ def check(
             raise typer.Exit(2)
         item = matches[0]
         if isinstance(item.check, RuleChecker):
-            if evidence is None:
-                raise ValueError("rule 检查需要 --evidence")
-            values = json.loads(evidence.read_text(encoding="utf-8"))
+            if evidence is not None:
+                values = json.loads(evidence.read_text(encoding="utf-8"))
+            elif artifact is not None and item.check.fn == "media.probe":
+                values = media_probe(artifact)
+            else:
+                raise ValueError("该 rule 检查需要 --evidence；media.probe 可使用 --artifact")
             results = check_rule(item.check, values)
             output = {"criterion_id": criterion, "status": "pass" if all(row["ok"] for row in results)
                       else "fail", "assertions": results}
@@ -73,6 +77,8 @@ def check(
     except DslError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
-    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+    except typer.Exit:
+        raise
+    except (OSError, RuntimeError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
         typer.echo(f"检查失败：{exc}", err=True)
         raise typer.Exit(3) from exc
