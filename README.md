@@ -1,8 +1,26 @@
 # Harness Platform —— 判据驱动的业务 Agent 构建框架
 
+## 当前开发进度（S1 起步）
+
+已实现可安装的 Python 包、四份样例的结构校验，以及基于采集结果 JSON 的单条 `rule` 断言调试。真实采集器、知识引用校验、`judge`、编译与运行时仍在开发中。
+
+```bash
+python -m venv .venv
+.venv/bin/python -m pip install -e .
+.venv/bin/hpx validate examples/video-shortform.yaml examples/legal-contract-review.yaml examples/support-ticket-triage.yaml
+.venv/bin/python -m unittest discover -s tests
+```
+
+`hpx check` 当前需要已有采集结果，例如：
+
+```bash
+echo '{"audio":{"integrated_lufs":-13.6}}' > /tmp/hpx-evidence.json
+.venv/bin/hpx check --pack examples/video-shortform.yaml --criterion loudness_target --evidence /tmp/hpx-evidence.json
+```
+
 > 一句话：把业务专家脑子里的**隐性判据**，变成可执行、可验收、可回滚的 agent。
 
-本仓库当前处于 **S0 阶段（设计定稿 / 纸面验证）**，尚未开始编码。本文档包的用途是：在投入 UI 与实现之前，先把**行业无关的内核**定义清楚，并用三份跨行业判据样例做纸面压测。
+本仓库的业务验证仍处于 **S0 阶段（设计定稿 / 纸面验证）**，同时已开始 S1 的基础代码。文档包的用途是：在投入 UI 与完整实现之前，先把**行业无关的内核**定义清楚，并用三份跨行业判据样例做纸面压测。
 
 ## 为什么是"判据优先"，而不是"流程优先"
 
