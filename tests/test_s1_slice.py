@@ -2,6 +2,7 @@ import unittest
 import shutil
 import subprocess
 import tempfile
+import json
 from datetime import date
 from pathlib import Path
 
@@ -12,9 +13,11 @@ from hpx.checkers.schema import check_schema
 from hpx.checkers.gate import check_gate
 from hpx.checkers.record import input_get, record_field_check
 from hpx.dsl.loader import DslError, load_pack
+from hpx.dsl.expr import ExpressionError, evaluate_expression, parse_expression
 from hpx.knowledge.validate import validate_basis
 from hpx.model.pack import GateChecker, JudgeChecker, RuleChecker, SchemaChecker
 from hpx.model import CriterionPack
+from hpx.compile import compile_pack
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -175,6 +178,39 @@ class S1SliceTests(unittest.TestCase):
         with self.assertRaisesRegex(DslError, "V-KB-11"):
             validate_basis(pack, ROOT / "knowledge", date(2026, 11, 15))
         validate_basis(pack, ROOT / "knowledge", date(2022, 1, 1))
+
+    def test_applies_when_expression_and_rejected_calls(self):
+        expression = "evidence.customer.tier == 'vip' and evidence.risk.sentiment == 'negative'"
+        context = {"evidence": {"customer": {"tier": "vip"}, "risk": {"sentiment": "negative"}}}
+        self.assertTrue(evaluate_expression(expression, context))
+        self.assertFalse(evaluate_expression(expression, {"evidence": {"customer": {"tier": "normal"}}}))
+        self.assertTrue(evaluate_expression("input.platform in ['douyin', 'shipinhao']",
+                                            {"input": {"platform": "douyin"}}))
+        self.assertTrue(evaluate_expression("evidence.risk.legal_threat == true",
+                                            {"evidence": {"risk": {"legal_threat": True}}}))
+        for unsafe in ("__import__('os').system('echo bad')", "input.items()", "input.x[0]", "input.x + 1"):
+            with self.subTest(unsafe=unsafe), self.assertRaises(ExpressionError):
+                parse_expression(unsafe)
+
+    def test_compiler_is_deterministic_and_topological(self):
+        pack = load_pack(ROOT / "examples/video-shortform.yaml")
+        first = compile_pack(pack, ROOT / "knowledge")
+        second = compile_pack(pack, ROOT / "knowledge")
+        self.assertEqual(json.dumps(first, sort_keys=True), json.dumps(second, sort_keys=True))
+        order = {node["id"]: index for index, node in enumerate(first["graph"]["nodes"])}
+        for parent, child in first["graph"]["edges"]:
+            self.assertLess(order[parent], order[child])
+        indices = [order[checkpoint["after"]] for checkpoint in first["checkpoints"]]
+        self.assertEqual(indices, sorted(indices))
+
+    def test_compiler_rejects_missing_and_cyclic_steps(self):
+        pack = load_pack(ROOT / "examples/video-shortform.yaml").model_copy(deep=True)
+        pack.workflow.steps[0].depends_on = ["missing"]
+        with self.assertRaisesRegex(DslError, "不存在的步骤"):
+            compile_pack(pack, ROOT / "knowledge")
+        pack.workflow.steps[0].depends_on = [pack.workflow.steps[-1].id]
+        with self.assertRaisesRegex(DslError, "循环依赖"):
+            compile_pack(pack, ROOT / "knowledge")
 
 
 if __name__ == "__main__":

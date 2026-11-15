@@ -13,6 +13,7 @@ from hpx.checkers.gate import check_gate
 from hpx.dsl.loader import DslError, load_pack
 from hpx.knowledge.validate import validate_basis
 from hpx.model.pack import GateChecker, JudgeChecker, RuleChecker, SchemaChecker
+from hpx.compile import compile_pack
 
 app = typer.Typer(help="判据包验证与单条判据调试")
 
@@ -52,6 +53,43 @@ def validate(paths: list[Path] = typer.Argument(..., help="一个或多个判据
             failed = True
     if failed:
         raise typer.Exit(1)
+
+
+@app.command("compile")
+def compile_command(pack: Path = typer.Argument(..., help="判据包 YAML"),
+                    output: Path | None = typer.Option(None, "-o", "--output", help="IR JSON 输出文件")) -> None:
+    try:
+        ir = compile_pack(load_pack(pack), knowledge_directory(pack))
+        serialized = json.dumps(ir, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+        if output:
+            output.write_text(serialized, encoding="utf-8")
+        else:
+            typer.echo(serialized, nl=False)
+    except (DslError, OSError, ValueError) as exc:
+        typer.echo(f"编译失败：{exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
+@app.command()
+def run(pack: Path = typer.Argument(..., help="判据包 YAML"),
+        dry_run: bool = typer.Option(False, "--dry-run", help="仅打印执行图，不执行节点")) -> None:
+    if not dry_run:
+        typer.echo("实际执行器尚未实现；请使用 --dry-run 查看执行图", err=True)
+        raise typer.Exit(2)
+    try:
+        ir = compile_pack(load_pack(pack), knowledge_directory(pack))
+    except (DslError, OSError, ValueError) as exc:
+        typer.echo(f"无法生成执行图：{exc}", err=True)
+        raise typer.Exit(1) from exc
+    checks = {}
+    for checkpoint in ir["checkpoints"]:
+        checks.setdefault(checkpoint["after"], []).append(checkpoint)
+    for node in ir["graph"]["nodes"]:
+        typer.echo(f"{node['id']} ({node['uses']})")
+        for checkpoint in checks.get(node["id"], []):
+            checker = checkpoint["checker"]
+            detail = checker.get("fn", checker.get("schema_ref", checker.get("approver_role", checker.get("model", ""))))
+            typer.echo(f"  -> {checkpoint['criterion_id']} [{checkpoint['severity']}] {checker['type']} {detail}")
 
 
 @app.command()

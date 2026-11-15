@@ -4,6 +4,7 @@ import yaml
 from pydantic import ValidationError
 
 from hpx.model import CriterionPack
+from hpx.dsl.expr import ExpressionError, parse_expression
 
 
 class DslError(Exception):
@@ -21,8 +22,16 @@ def load_pack(path: Path) -> CriterionPack:
     if not isinstance(data, dict):
         raise DslError(str(path), "顶层必须是对象")
     try:
-        return CriterionPack.model_validate(data)
+        pack = CriterionPack.model_validate(data)
     except ValidationError as exc:
         first = exc.errors()[0]
         location = ".".join(map(str, first["loc"]))
         raise DslError(f"{path}:{location}", first["msg"]) from exc
+    for slot in ("input", "process", "quality", "veto"):
+        for criterion in getattr(pack.slots, slot):
+            if criterion.applies_when:
+                try:
+                    parse_expression(criterion.applies_when)
+                except ExpressionError as exc:
+                    raise DslError(f"{path}:{criterion.id}.applies_when", str(exc)) from exc
+    return pack

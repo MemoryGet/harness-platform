@@ -2,13 +2,15 @@
 
 ## 当前开发进度（S1 起步）
 
-已实现可安装的 Python 包、四份样例的结构校验、本地知识依据的来源/唯一匹配/原文及生效日期核对、`media.probe` / `input.get` / `record.field_check` 采集器、`rule` / JSON Schema / 人工闸门单条检查，以及可配置多模型切换的 `judge`。其余采集器、编译与运行时仍在开发中。
+已实现可安装的 Python 包、四份样例的结构校验、本地知识依据的来源/唯一匹配/原文及生效日期核对、`media.probe` / `input.get` / `record.field_check` 采集器、`rule` / JSON Schema / 人工闸门单条检查，以及可配置多模型切换的 `judge`。非复合判据包可编译为确定性 IR，并用 `run --dry-run` 检查执行图。复合任务编译、实际执行器与其余采集器仍在开发中。
 
 ```bash
 python -m venv .venv
 .venv/bin/python -m pip install -e .
 .venv/bin/hpx validate examples/video-shortform.yaml examples/legal-contract-review.yaml examples/support-ticket-triage.yaml
 .venv/bin/python -m unittest discover -s tests
+.venv/bin/hpx compile examples/video-shortform.yaml -o /tmp/hpx-video-ir.json
+.venv/bin/hpx run examples/video-shortform.yaml --dry-run
 ```
 
 发布前可显式传入包发布日期，核对知识依据在该日期是否生效：
