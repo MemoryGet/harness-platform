@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import date
 
 import yaml
 
@@ -10,11 +11,11 @@ def _normalized(value: str) -> str:
     return "".join(value.split())
 
 
-def validate_basis(pack: CriterionPack, directory: Path) -> None:
+def validate_basis(pack: CriterionPack, directory: Path, publish_date: date | None = None) -> None:
     """Check declared local sources and basis links (V-KB-01..03).
 
-    Publication-date checks require an explicit publish date and belong to the
-    publication flow; validation must not guess one from the current clock.
+    V-KB-11 runs only with an explicit publication date; the current clock is
+    never used as a substitute.
     """
     declarations = {source["id"]: source for source in (pack.knowledge or {}).get("sources", [])}
     sources = {}
@@ -52,3 +53,11 @@ def validate_basis(pack: CriterionPack, directory: Path) -> None:
                 quote = basis.get("quote")
                 if quote and _normalized(quote) not in _normalized(candidates[0].get("body", "")):
                     raise DslError(criterion.id, f"V-KB-03: 引文与知识源原文不符：{basis.get('item')}")
+                if publish_date is not None:
+                    item = candidates[0]
+                    start = item.get("effective_from")
+                    end = item.get("effective_to")
+                    start = date.fromisoformat(start) if isinstance(start, str) else start
+                    end = date.fromisoformat(end) if isinstance(end, str) else end
+                    if (start and publish_date < start) or (end and publish_date > end):
+                        raise DslError(criterion.id, f"V-KB-11: 依据 {item['id']} 在 {publish_date} 未生效")

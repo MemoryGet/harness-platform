@@ -2,16 +2,18 @@ import unittest
 import shutil
 import subprocess
 import tempfile
+from datetime import date
 from pathlib import Path
 
 from hpx.checkers.rule import check_rule
 from hpx.checkers.judge import JudgeService, ModelTarget
 from hpx.checkers.media import media_probe
 from hpx.checkers.schema import check_schema
+from hpx.checkers.gate import check_gate
 from hpx.checkers.record import input_get, record_field_check
 from hpx.dsl.loader import DslError, load_pack
 from hpx.knowledge.validate import validate_basis
-from hpx.model.pack import JudgeChecker, RuleChecker, SchemaChecker
+from hpx.model.pack import GateChecker, JudgeChecker, RuleChecker, SchemaChecker
 from hpx.model import CriterionPack
 
 
@@ -155,6 +157,24 @@ class S1SliceTests(unittest.TestCase):
         pack.knowledge["sources"][0]["pin_policy"] = "follow_latest"
         with self.assertRaisesRegex(DslError, "V-KB-04"):
             validate_basis(pack, ROOT / "knowledge")
+
+    def test_gate_waits_for_human_decision(self):
+        result = check_gate(GateChecker(type="gate", approver_role="法务负责人",
+                                        must_see=["evidence.contract"], prompt="确认？"))
+        self.assertEqual(result["status"], "pending")
+        self.assertEqual(result["approver_role"], "法务负责人")
+        self.assertEqual(result["must_see"], ["evidence.contract"])
+
+    def test_knowledge_basis_must_cover_publish_date(self):
+        pack = load_pack(ROOT / "examples/legal-contract-review.yaml").model_copy(deep=True)
+        for slot in ("input", "process", "quality", "veto"):
+            for criterion in getattr(pack.slots, slot):
+                criterion.basis = []
+        pack.slots.quality[0].basis = [{"source": "kb-cn-contract", "item": "sop-liability-cap-3-1",
+                                        "path": "内部审查指引/3.1 责任限额（旧版）"}]
+        with self.assertRaisesRegex(DslError, "V-KB-11"):
+            validate_basis(pack, ROOT / "knowledge", date(2026, 11, 15))
+        validate_basis(pack, ROOT / "knowledge", date(2022, 1, 1))
 
 
 if __name__ == "__main__":

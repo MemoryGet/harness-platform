@@ -2,7 +2,7 @@
 
 ## 当前开发进度（S1 起步）
 
-已实现可安装的 Python 包、四份样例的结构校验、本地知识依据的来源/唯一匹配/原文核对、`media.probe` / `input.get` / `record.field_check` 采集器、`rule` 与 JSON Schema 单条检查，以及可配置多模型切换的 `judge`。发布日期相关的知识校验、其余采集器、编译与运行时仍在开发中。
+已实现可安装的 Python 包、四份样例的结构校验、本地知识依据的来源/唯一匹配/原文及生效日期核对、`media.probe` / `input.get` / `record.field_check` 采集器、`rule` / JSON Schema / 人工闸门单条检查，以及可配置多模型切换的 `judge`。其余采集器、编译与运行时仍在开发中。
 
 ```bash
 python -m venv .venv
@@ -10,6 +10,14 @@ python -m venv .venv
 .venv/bin/hpx validate examples/video-shortform.yaml examples/legal-contract-review.yaml examples/support-ticket-triage.yaml
 .venv/bin/python -m unittest discover -s tests
 ```
+
+发布前可显式传入包发布日期，核对知识依据在该日期是否生效：
+
+```bash
+.venv/bin/hpx validate examples/legal-contract-review.yaml --publish-date 2026-11-15
+```
+
+人工闸门的 `hpx check` 返回 `pending` 和退出码 1，表示仍需审批，不代表已经放行。
 
 `hpx check` 当前需要已有采集结果，例如：
 
