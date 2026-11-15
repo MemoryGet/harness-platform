@@ -33,6 +33,17 @@ def schema_path(pack: Path, reference: str) -> Path:
     raise ValueError(f"找不到 Schema 文件：{reference}")
 
 
+def pack_catalog(pack_path: Path) -> dict:
+    examples = knowledge_directory(pack_path).parent / "examples"
+    catalog = {}
+    if examples.is_dir():
+        for path in examples.rglob("*.yaml"):
+            candidate = load_pack(path)
+            if candidate.artifact.kind != "composite":
+                catalog.setdefault(candidate.metadata.id, []).append(candidate)
+    return catalog
+
+
 @app.command()
 def validate(paths: list[Path] = typer.Argument(..., help="一个或多个判据包 YAML"),
              publish_date: str | None = typer.Option(None, help="包发布日期 YYYY-MM-DD，用于 V-KB-11"),
@@ -59,7 +70,7 @@ def validate(paths: list[Path] = typer.Argument(..., help="一个或多个判据
 def compile_command(pack: Path = typer.Argument(..., help="判据包 YAML"),
                     output: Path | None = typer.Option(None, "-o", "--output", help="IR JSON 输出文件")) -> None:
     try:
-        ir = compile_pack(load_pack(pack), knowledge_directory(pack))
+        ir = compile_pack(load_pack(pack), knowledge_directory(pack), pack_catalog(pack))
         serialized = json.dumps(ir, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
         if output:
             output.write_text(serialized, encoding="utf-8")
@@ -77,11 +88,14 @@ def run(pack: Path = typer.Argument(..., help="判据包 YAML"),
         typer.echo("实际执行器尚未实现；请使用 --dry-run 查看执行图", err=True)
         raise typer.Exit(2)
     try:
-        ir = compile_pack(load_pack(pack), knowledge_directory(pack))
+        ir = compile_pack(load_pack(pack), knowledge_directory(pack), pack_catalog(pack))
     except (DslError, OSError, ValueError) as exc:
         typer.echo(f"无法生成执行图：{exc}", err=True)
         raise typer.Exit(1) from exc
     checks = {}
+    for subtask in ir.get("subtasks", []):
+        typer.echo(f"subtask {subtask['id']} -> {subtask['pack_id']}@{subtask['pack_version']}")
+        typer.echo(f"  requires {', '.join(subtask['required_inputs'])}")
     for checkpoint in ir["checkpoints"]:
         checks.setdefault(checkpoint["after"], []).append(checkpoint)
     for node in ir["graph"]["nodes"]:

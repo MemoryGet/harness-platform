@@ -2,7 +2,7 @@
 
 ## 当前开发进度（S1 起步）
 
-已实现可安装的 Python 包、四份样例的结构校验、本地知识依据的来源/唯一匹配/原文及生效日期核对、`media.probe` / `input.get` / `record.field_check` 采集器、`rule` / JSON Schema / 人工闸门单条检查，以及可配置多模型切换的 `judge`。非复合判据包可编译为确定性 IR，并用 `run --dry-run` 检查执行图。SQLite 运行日志与可注入执行器已通过暂停、恢复、否决的测试；真实执行壳、复合任务编译与其余采集器仍在开发中。
+已实现可安装的 Python 包、四份样例的结构校验、本地知识依据的来源/唯一匹配/原文及生效日期核对、`media.probe` / `input.get` / `record.field_check` 采集器、`rule` / JSON Schema / 人工闸门单条检查，以及可配置多模型切换的 `judge`。非复合判据包可编译为确定性 IR，并用 `run --dry-run` 检查执行图。复合任务已有显式 `requires_inputs` 契约与静态版本、槽位、输入匹配。SQLite 运行日志与可注入执行器已通过暂停、恢复、否决的测试；DeepSeek Harness 适配器已完成本地模拟验证，真实模型调用、复合子 run 调度与其余采集器仍在开发中。
 
 ```bash
 python -m venv .venv

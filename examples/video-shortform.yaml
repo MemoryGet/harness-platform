@@ -57,6 +57,7 @@ slots:
   # ── 输入判据：素材够不够，不够就别开工 ─────────────────────────
   input:
     - id: source_media_present
+      requires_inputs: [raw_footage]
       title: 有可用源素材
       ask: "这次要剪的素材在哪里？能读到吗？"
       rationale: "读不到素材就无法开始，提前失败比中途失败省算力。"
@@ -72,6 +73,7 @@ slots:
       severity: block
 
     - id: audio_track_present
+      requires_inputs: [raw_footage]
       title: 有音轨
       ask: "素材必须有声音吗？"
       rationale: "口播类内容无音轨等同于不可用；纯画面类可放行。"
@@ -88,6 +90,7 @@ slots:
       severity: block
 
     - id: platform_declared
+      requires_inputs: [platform]
       title: 已声明投放平台
       ask: "这条片子投哪个平台？"
       rationale: "不同平台时长与画幅要求不同，必须显式声明。"
@@ -104,6 +107,7 @@ slots:
       severity: block
 
     - id: portrait_consent_input
+      requires_inputs: [portrait_consent_id]
       title: 肖像授权已确认
       ask: "出镜人是否已授权？授权书编号是多少？"
       rationale: "肖像侵权是硬性法律风险，必须在开工前确认。"

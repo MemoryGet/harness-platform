@@ -58,6 +58,7 @@ slots:
   # ── 输入判据 ─────────────────────────────────────────────────
   input:
     - id: body_sufficient
+      requires_inputs: [ticket]
       title: 工单描述够用
       ask: "客户描述至少多少字才能自动分派？"
       rationale: "过短的描述无法判断意图，强行分派会导致二次转派。"
@@ -74,6 +75,7 @@ slots:
       severity: block
 
     - id: channel_supported
+      requires_inputs: [channel]
       title: 渠道在支持范围
       ask: "哪几个渠道进来工单可以自动处理？"
       rationale: "电话与线下渠道的上下文不完整，需人工接入。"
@@ -90,6 +92,7 @@ slots:
       severity: block
 
     - id: customer_identified
+      requires_inputs: [customer]
       title: 客户可识别
       ask: "必须能定位到客户档案吗？"
       rationale: "没有客户档案就无法判断等级与历史，SLA 也无法计时。"

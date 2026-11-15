@@ -3,6 +3,8 @@ import shutil
 import subprocess
 import tempfile
 import json
+import os
+from unittest.mock import patch
 from datetime import date
 from pathlib import Path
 
@@ -19,8 +21,10 @@ from hpx.knowledge.validate import validate_basis, validate_source
 from hpx.model.pack import GateChecker, JudgeChecker, RuleChecker, SchemaChecker
 from hpx.model import CriterionPack
 from hpx.compile import compile_pack
+from hpx.compile.subtasks import resolve_subtasks
 from hpx.runtime.store import RunStore
 from hpx.runtime.runner import Runner
+from hpx.runtime.deepseek import DeepSeekHeadlessExecutor
 from typer.testing import CliRunner
 from hpx.cli.main import app
 
@@ -312,6 +316,42 @@ class S1SliceTests(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertIn("loudness_target", result.stdout)
         self.assertIn("audio.integrated_lufs within [-15, -13]", result.stdout)
+
+    def test_composite_input_contract_is_explicit(self):
+        parent = load_pack(ROOT / "examples/composite/launch-content-package.yaml").model_copy(deep=True)
+        video = load_pack(ROOT / "examples/video-shortform.yaml")
+        parent.subtasks = [parent.subtasks[0]]
+        parent.artifact.parts = [parent.artifact.parts[0]]
+        parent.subtasks[0]["pack"] = "video-shortform@1.0.0"
+        catalog = {"video-shortform": [video]}
+        with self.assertRaisesRegex(DslError, "V-COMP-03.*platform"):
+            resolve_subtasks(parent, catalog)
+        parent.subtasks[0]["inputs"].update({"platform": "${run.inputs.platform}",
+                                               "portrait_consent_id": "${run.inputs.portrait_consent_id}"})
+        resolved = resolve_subtasks(parent, catalog)
+        self.assertEqual(resolved[0]["pack_version"], "1.0.0")
+        self.assertEqual(resolved[0]["required_inputs"], ["platform", "portrait_consent_id", "raw_footage"])
+        ir = compile_pack(parent, ROOT / "knowledge", catalog)
+        self.assertEqual(ir["subtasks"][0]["pack_version"], "1.0.0")
+
+    def test_deepseek_adapter_uses_headless_read_only_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "fake-dsh"
+            executable.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\" > args.txt\ncat >/dev/null\nprintf '{\"plan\":\"ok\"}\\n'\n")
+            executable.chmod(0o755)
+            workspace = root / "work"
+            executor = DeepSeekHeadlessExecutor(executable, workspace, root / "dsh-home")
+            node = {"id": "plan", "uses": "agent.planner", "config": {"task": "Plan this"}}
+            with patch.dict(os.environ, {"HPX_DEEPSEEK_KEY": "test-placeholder"}):
+                self.assertEqual(executor(node, {"input": {"topic": "test"}}), {"plan": "ok"})
+            arguments = (workspace / "args.txt").read_text()
+            self.assertIn("read-only", arguments)
+            self.assertIn("never", arguments)
+            self.assertNotIn("test-placeholder", arguments)
+            with patch.dict(os.environ, {"HPX_DEEPSEEK_KEY": ""}):
+                with self.assertRaisesRegex(RuntimeError, "缺少 DeepSeek 凭据"):
+                    executor(node, {})
 
 
 if __name__ == "__main__":

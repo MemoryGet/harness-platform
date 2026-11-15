@@ -11,6 +11,7 @@ from hpx.dsl.loader import DslError
 from hpx.knowledge.validate import validate_basis
 from hpx.model import CriterionPack
 from hpx.model.pack import GateChecker
+from hpx.compile.subtasks import resolve_subtasks
 
 
 SEVERITY_ORDER = {"veto": 0, "block": 1, "warn": 2, "info": 3}
@@ -71,9 +72,9 @@ def _knowledge_ir(pack: CriterionPack, directory: Path) -> dict:
     return {"pins": pins, "bindings": bindings}
 
 
-def compile_pack(pack: CriterionPack, knowledge_directory: Path) -> dict:
-    if pack.artifact.kind == "composite":
-        raise DslError(pack.metadata.id, "复合任务编译尚未实现；不能生成不完整的 IR")
+def compile_pack(pack: CriterionPack, knowledge_directory: Path,
+                 catalog: dict[str, list[CriterionPack]] | None = None) -> dict:
+    subtasks = resolve_subtasks(pack, catalog or {}) if pack.artifact.kind == "composite" else []
     validate_basis(pack, knowledge_directory)
     steps = _topological_steps(pack)
     order = {step.id: index for index, step in enumerate(steps)}
@@ -97,4 +98,4 @@ def compile_pack(pack: CriterionPack, knowledge_directory: Path) -> dict:
             "graph": {"nodes": [step.model_dump(mode="json", exclude_none=True) for step in steps],
                       "edges": sorted([[parent, step.id] for step in steps for parent in step.depends_on])},
             "checkpoints": checkpoints, "knowledge": _knowledge_ir(pack, knowledge_directory),
-            "gates": gates, "eval": pack.eval}
+            "gates": gates, "subtasks": subtasks, "eval": pack.eval}

@@ -67,6 +67,7 @@ eval:                             # 验收配置
   ask: "成片响度应该是多少 LUFS？容差多少？"   # 访谈问题，S5 表单直接用它做 label
   rationale: "各平台响度标准不同，超标会被限流。"  # 为什么重要，审计与 judge rubric 复用
   evidence: [probe]              # 本条判据依赖哪些证据
+  requires_inputs: [raw_footage] # input 槽位专用：运行输入的必填键
   basis:                         # 可选，判据依据（见 §11）；block/veto 建议必填
     - source: kb-platform-spec
       item: lufs-standard-2026
@@ -88,6 +89,7 @@ eval:                             # 验收配置
 | `ask` | 是 | 业务语言，用专家访谈的原话更好 |
 | `rationale` | 建议 | 空着不影响运行，但会让 `judge` 判据质量下降 |
 | `evidence` | 否 | 空表示不需要额外证据（如纯结构断言） |
+| `requires_inputs` | input 槽位必填 | 显式列出必需的运行输入键，供复合任务编译时检查 |
 | `basis` | 否 | 判据依据，指向知识库条目；`veto` 必填，`block` 由 `knowledge.require_basis_for_block` 决定，见 §11 |
 | `applies_when` | 否 | 空表示恒适用 |
 | `after` | 是 | 必须是 `workflow.steps[].id` 中存在的值 |

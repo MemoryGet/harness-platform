@@ -65,6 +65,7 @@ slots:
   # ── 输入判据 ─────────────────────────────────────────────────
   input:
     - id: doc_readable
+      requires_inputs: [contract]
       title: 文档可解析
       ask: "扫描件的识别质量够不够？低于多少要退回重扫？"
       rationale: "OCR 置信度低会导致条款漏读，比读错更危险。"
@@ -80,6 +81,7 @@ slots:
       severity: block
 
     - id: contract_type_known
+      requires_inputs: [contract_type]
       title: 合同类型已明确
       ask: "这份合同属于哪一类？不同类型查的条款不一样。"
       rationale: "类型决定必检条款清单，类型不明只能全量检查，成本高且易漏。"
@@ -96,6 +98,7 @@ slots:
       severity: block
 
     - id: jurisdiction_declared
+      requires_inputs: [jurisdiction]
       title: 适用法域已声明
       ask: "这份合同适用哪个法域？"
       rationale: "法域决定禁止性条款清单与争议解决方式。"

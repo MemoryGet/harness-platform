@@ -39,6 +39,8 @@ class Runner:
 
     def advance(self, tenant_id: str, run_id: str) -> str:
         run = self.store.get_run(tenant_id, run_id)
+        if run["ir"].get("subtasks"):
+            raise NotImplementedError("复合任务子 run 调度尚未实现")
         if run["status"] in ("done", "failed", "aborted"):
             return run["status"]
         events = self.store.events(tenant_id, run_id)

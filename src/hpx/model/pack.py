@@ -65,6 +65,7 @@ class Criterion(StrictModel):
     ask: str
     rationale: str | None = None
     evidence: list[str] = Field(default_factory=list)
+    requires_inputs: list[str] = Field(default_factory=list)
     basis: list[dict] = Field(default_factory=list)
     applies_when: str | None = None
     after: str
@@ -133,6 +134,12 @@ class CriterionPack(StrictModel):
                     raise ValueError(f"判据 {criterion.id} 的 after={criterion.after} 不在 workflow.steps 中")
                 if slot == "veto" and isinstance(criterion.check, JudgeChecker):
                     raise ValueError(f"判据 {criterion.id}: judge 不允许用于 veto 槽位")
+                if slot != "input" and criterion.requires_inputs:
+                    raise ValueError(f"判据 {criterion.id}: requires_inputs 只允许用于 input 槽位")
+                if slot == "input" and not criterion.requires_inputs:
+                    raise ValueError(f"判据 {criterion.id}: input 槽位必须声明 requires_inputs")
+                if len(criterion.requires_inputs) != len(set(criterion.requires_inputs)):
+                    raise ValueError(f"判据 {criterion.id}: requires_inputs 含重复输入键")
         if len(ids) != len(set(ids)):
             raise ValueError("slots 包含重复的判据 id")
         return self

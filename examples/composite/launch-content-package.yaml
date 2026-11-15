@@ -96,6 +96,7 @@ slots:
   # ── 输入判据 ─────────────────────────────────────────────
   input:
     - id: platform_list_declared
+      requires_inputs: [platforms, footage_uri, spec_uri]
       title: 投放平台已声明
       ask: "这次上市内容要投哪几个平台？"
       rationale: "平台决定画幅、时长与字幕规范，未声明无法出片。"
@@ -112,6 +113,7 @@ slots:
       severity: block
 
     - id: legal_doc_attached
+      requires_inputs: [legal_doc_uri]
       title: 法务底稿已附
       ask: "有没有可核对的合同/条款底稿？"
       rationale: "法务审查子任务没有底稿只能空跑，等于没有把关。"
