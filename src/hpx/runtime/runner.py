@@ -59,7 +59,7 @@ class Runner:
         for check in ir["checkpoints"]:
             checks_by_step.setdefault(check["after"], []).append(check)
         context = {"input": run["inputs"], "artifact": ir["artifact"],
-                   "evidence": evidence, "env": {}}
+                   "evidence": evidence, "env": {}, "run_id": run_id, "tenant_id": tenant_id}
         for node in ir["graph"]["nodes"]:
             step_id = node["id"]
             if step_id not in completed_steps:

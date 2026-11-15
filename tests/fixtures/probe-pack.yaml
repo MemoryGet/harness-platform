@@ -1,0 +1,33 @@
+dsl_version: "0.1"
+kind: CriterionPack
+metadata:
+  id: probe-smoke
+  name: 媒体探测冒烟测试
+  industry: media
+  version: 0.1.0
+  owner: 开发测试
+artifact:
+  kind: timeline
+  format: mp4
+workflow:
+  steps:
+    - id: ingest
+      uses: tool.probe_media
+      output: probe
+slots:
+  input: []
+  process: []
+  quality:
+    - id: has_duration
+      title: 有时长
+      ask: 文件是否有有效时长？
+      after: ingest
+      check:
+        type: rule
+        fn: media.probe
+        assert:
+          - field: video.duration_sec
+            op: ">"
+            value: 0
+      severity: block
+  veto: []

@@ -13,6 +13,9 @@ from hpx.dsl.loader import DslError, load_pack
 from hpx.knowledge.validate import validate_basis
 from hpx.model.pack import GateChecker, JudgeChecker, RuleChecker, SchemaChecker
 from hpx.compile import compile_pack
+from hpx.runtime.builtin import execute_check, execute_step
+from hpx.runtime.runner import Runner
+from hpx.runtime.store import RunStore
 
 app = typer.Typer(help="判据包验证与单条判据调试")
 
@@ -83,15 +86,35 @@ def compile_command(pack: Path = typer.Argument(..., help="判据包 YAML"),
 
 @app.command()
 def run(pack: Path = typer.Argument(..., help="判据包 YAML"),
-        dry_run: bool = typer.Option(False, "--dry-run", help="仅打印执行图，不执行节点")) -> None:
-    if not dry_run:
-        typer.echo("实际执行器尚未实现；请使用 --dry-run 查看执行图", err=True)
-        raise typer.Exit(2)
+        dry_run: bool = typer.Option(False, "--dry-run", help="仅打印执行图，不执行节点"),
+        input_file: Path | None = typer.Option(None, "--input", help="运行输入 JSON 文件"),
+        state: Path = typer.Option(Path("/workspace/.hpx/runs.sqlite3"), help="SQLite 运行日志路径"),
+        tenant: str = typer.Option("local", help="租户标识")) -> None:
     try:
         ir = compile_pack(load_pack(pack), knowledge_directory(pack), pack_catalog(pack))
     except (DslError, OSError, ValueError) as exc:
         typer.echo(f"无法生成执行图：{exc}", err=True)
         raise typer.Exit(1) from exc
+    if not dry_run:
+        if input_file is None:
+            typer.echo("实际运行需要 --input JSON 文件", err=True)
+            raise typer.Exit(2)
+        try:
+            inputs = json.loads(input_file.read_text(encoding="utf-8"))
+            if not isinstance(inputs, dict):
+                raise ValueError("运行输入必须是 JSON 对象")
+            store = RunStore(state)
+            run_id = Runner(store, execute_step, execute_check).start(tenant, ir, inputs, triggered_by="cli")
+            status = store.get_run(tenant, run_id)["status"]
+            typer.echo(json.dumps({"run_id": run_id, "status": status}, ensure_ascii=False))
+            if status != "done":
+                raise typer.Exit(1)
+            return
+        except typer.Exit:
+            raise
+        except (OSError, ValueError, RuntimeError, NotImplementedError) as exc:
+            typer.echo(f"运行未完成：{exc}", err=True)
+            raise typer.Exit(3) from exc
     checks = {}
     for subtask in ir.get("subtasks", []):
         typer.echo(f"subtask {subtask['id']} -> {subtask['pack_id']}@{subtask['pack_version']}")

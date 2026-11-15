@@ -27,7 +27,8 @@ def media_probe(artifact: Path) -> dict:
     streams = probe.get("streams", [])
     video = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
     audio = next((stream for stream in streams if stream.get("codec_type") == "audio"), None)
-    result = {"video": {"duration_sec": float(probe.get("format", {}).get("duration", 0))}}
+    result = {"video": {"duration_sec": float(probe.get("format", {}).get("duration", 0))},
+              "audio": {"has_track": bool(audio)}}
     if video:
         result["video"].update({key: video[key] for key in ("width", "height") if key in video})
         rate = video.get("r_frame_rate", "0/1")
@@ -40,7 +41,7 @@ def media_probe(artifact: Path) -> dict:
         peak = re.findall(r"True peak:\s*Peak:\s*(-?\d+(?:\.\d+)?) dBFS", output)
         if not loudness:
             raise RuntimeError("FFmpeg 未返回整体响度")
-        result["audio"] = {"integrated_lufs": float(loudness[-1])}
+        result["audio"]["integrated_lufs"] = float(loudness[-1])
         if peak:
             result["audio"]["true_peak_db"] = float(peak[-1])
     return result

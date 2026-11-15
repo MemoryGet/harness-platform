@@ -25,6 +25,7 @@ from hpx.compile.subtasks import resolve_subtasks
 from hpx.runtime.store import RunStore
 from hpx.runtime.runner import Runner
 from hpx.runtime.deepseek import DeepSeekHeadlessExecutor
+from hpx.runtime.builtin import execute_step
 from typer.testing import CliRunner
 from hpx.cli.main import app
 
@@ -126,6 +127,15 @@ class S1SliceTests(unittest.TestCase):
             self.assertEqual(data["video"]["width"], 320)
             self.assertGreater(data["video"]["duration_sec"], 1)
             self.assertTrue(-15 <= data["audio"]["integrated_lufs"] <= -13)
+            input_file = Path(directory) / "input.json"
+            input_file.write_text(json.dumps({"raw_footage": str(path)}))
+            state = Path(directory) / "runs.sqlite3"
+            result = CliRunner().invoke(app, ["run", str(ROOT / "tests/fixtures/probe-pack.yaml"),
+                                              "--input", str(input_file), "--state", str(state)])
+            self.assertEqual(result.exit_code, 0, result.output)
+            run = json.loads(result.stdout)
+            self.assertEqual(run["status"], "done")
+            self.assertEqual(RunStore(state).get_run("local", run["run_id"])["status"], "done")
 
     def test_schema_check_pass_fail_and_strict_mode(self):
         path = ROOT / "schemas/triage_result.json"
@@ -352,6 +362,14 @@ class S1SliceTests(unittest.TestCase):
             with patch.dict(os.environ, {"HPX_DEEPSEEK_KEY": ""}):
                 with self.assertRaisesRegex(RuntimeError, "缺少 DeepSeek 凭据"):
                     executor(node, {})
+
+    def test_agent_node_dispatches_to_deepseek_adapter(self):
+        with patch("hpx.runtime.builtin.DeepSeekHeadlessExecutor") as adapter:
+            adapter.return_value.return_value = {"plan": ["a"]}
+            result = execute_step({"id": "plan", "uses": "agent.planner",
+                                   "config": {"task": "Plan"}}, {"run_id": "test-run"})
+            self.assertEqual(result, {"plan": ["a"]})
+            adapter.return_value.assert_called_once()
 
 
 if __name__ == "__main__":
