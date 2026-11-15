@@ -75,6 +75,7 @@ JSON 输入与记录检查直接使用 `--artifact` 指向 JSON 文件。结构�
 | [docs/06-knowledge.md](docs/06-knowledge.md) | 知识库绑定：三种用途、快照锁定、引用闭环、11 条校验规则 | 后端 / 判据设计 |
 | [docs/07-knowledge-integration.md](docs/07-knowledge-integration.md) | 外部知识库接入：MCP 放哪层、Provider 接口、同步与权限 | 架构 / 后端 |
 | [docs/08-composition.md](docs/08-composition.md) | 复合任务：子任务组合、汇总判据、失败传播、不支持清单 | 架构 / 判据设计 |
+| [docs/10-monetization.md](docs/10-monetization.md) | 收入模型：服务 / 网关 / 订阅三条腿的定位、激励隔离、`verified_delivery` 计量 | 决策 / 商务 |
 | [examples/](examples/) | 四份判据 YAML 样例（含一份复合任务） | 全员必读 |
 | [knowledge/](knowledge/) | 知识源样例（法条 + 内部指引 + 案例库） | 判据设计 |
 
@@ -141,10 +142,11 @@ harness-platform/
 │   ├── 02-architecture.md          三分离、五件必定义、存储模型
 │   ├── 03-dsl-spec.md              DSL v0.1 规范（四槽位 + 四类检查器 + IR + 知识绑定）
 │   ├── 04-core-skeleton.md         内核目录结构、接口签名、CLI 命令
-│   ├── 05-decisions.md             ADR 决策记录（D-001~D-011）+ 16 个待定问题
+│   ├── 05-decisions.md             ADR 决策记录（D-001~D-012）+ 19 个待定问题
 │   ├── 06-knowledge.md             知识库绑定：三种用途、快照锁定、引用闭环
 │   ├── 07-knowledge-integration.md 外部知识库接入：MCP 位置、Provider、同步与权限
-│   └── 08-composition.md           复合任务：子任务组合、汇总判据、失败传播
+│   ├── 08-composition.md           复合任务：子任务组合、汇总判据、失败传播
+│   └── 10-monetization.md          收入模型：三条腿定位、激励隔离、计量单位
 ├── examples/
 │   ├── video-shortform.yaml        样例 1 · timeline · 18 条判据
 │   ├── legal-contract-review.yaml  样例 2 · text · 14 条判据（3 条挂知识依据）
