@@ -3,7 +3,7 @@ import shutil
 import subprocess
 import tempfile
 import json
-import os
+import yaml
 from unittest.mock import patch
 from datetime import date
 from pathlib import Path
@@ -351,17 +351,14 @@ class S1SliceTests(unittest.TestCase):
             executable.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\" > args.txt\ncat >/dev/null\nprintf '{\"plan\":\"ok\"}\\n'\n")
             executable.chmod(0o755)
             workspace = root / "work"
-            executor = DeepSeekHeadlessExecutor(executable, workspace, root / "dsh-home")
+            executor = DeepSeekHeadlessExecutor([str(executable)], workspace, root / "dsh-home")
             node = {"id": "plan", "uses": "agent.planner", "config": {"task": "Plan this"}}
-            with patch.dict(os.environ, {"HPX_DEEPSEEK_KEY": "test-placeholder"}):
-                self.assertEqual(executor(node, {"input": {"topic": "test"}}), {"plan": "ok"})
+            self.assertEqual(executor(node, {"input": {"topic": "test"}}), {"plan": "ok"})
             arguments = (workspace / "args.txt").read_text()
             self.assertIn("read-only", arguments)
             self.assertIn("never", arguments)
-            self.assertNotIn("test-placeholder", arguments)
-            with patch.dict(os.environ, {"HPX_DEEPSEEK_KEY": ""}):
-                with self.assertRaisesRegex(RuntimeError, "缺少 DeepSeek 凭据"):
-                    executor(node, {})
+            with self.assertRaisesRegex(ValueError, "缺少 config.task"):
+                executor({"id": "plan", "uses": "agent.planner"}, {})
 
     def test_agent_node_dispatches_to_deepseek_adapter(self):
         with patch("hpx.runtime.builtin.DeepSeekHeadlessExecutor") as adapter:
@@ -370,6 +367,34 @@ class S1SliceTests(unittest.TestCase):
                                    "config": {"task": "Plan"}}, {"run_id": "test-run"})
             self.assertEqual(result, {"plan": ["a"]})
             adapter.return_value.assert_called_once()
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "requires FFmpeg")
+    def test_cli_gate_resume_across_invocations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            media = root / "sample.mp4"
+            subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i",
+                            "color=c=black:s=160x120:r=25", "-t", "1", "-c:v", "mpeg4", "-y", str(media)],
+                           check=True)
+            data = yaml.safe_load((ROOT / "tests/fixtures/probe-pack.yaml").read_text())
+            data["slots"]["veto"] = [{"id": "release_gate", "title": "发布确认", "ask": "批准吗？",
+                                      "after": "ingest", "severity": "veto",
+                                      "check": {"type": "gate", "approver_role": "负责人"}}]
+            pack = root / "gate.yaml"
+            pack.write_text(yaml.safe_dump(data, allow_unicode=True))
+            inputs = root / "input.json"
+            inputs.write_text(json.dumps({"raw_footage": str(media)}))
+            state = root / "runs.sqlite3"
+            started = CliRunner().invoke(app, ["run", str(pack), "--input", str(inputs), "--state", str(state)])
+            self.assertEqual(started.exit_code, 1, started.output)
+            run_id = json.loads(started.stdout)["run_id"]
+            self.assertEqual(RunStore(state).get_run("local", run_id)["status"], "awaiting_gate")
+            resumed = CliRunner().invoke(app, ["resume", run_id, "--decision", "approve", "--note", "ok",
+                                              "--approver", "lead", "--state", str(state)])
+            self.assertEqual(resumed.exit_code, 0, resumed.output)
+            self.assertEqual(json.loads(resumed.stdout)["status"], "done")
+            events = RunStore(state).events("local", run_id)
+            self.assertEqual(sum(event["event_type"] == "step_done" for event in events), 1)
 
 
 if __name__ == "__main__":

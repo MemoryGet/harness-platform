@@ -137,6 +137,34 @@ def run(pack: Path = typer.Argument(..., help="判据包 YAML"),
 
 
 @app.command()
+def resume(run_id: str = typer.Argument(..., help="运行 id"),
+           decision: str = typer.Option(..., help="approve 或 reject"),
+           note: str = typer.Option(..., help="审批说明"),
+           approver: str = typer.Option(..., help="审批人标识"),
+           state: Path = typer.Option(Path("/workspace/.hpx/runs.sqlite3"), help="SQLite 运行日志路径"),
+           tenant: str = typer.Option("local", help="租户标识")) -> None:
+    try:
+        store = RunStore(state)
+        events = store.events(tenant, run_id)
+        decided = {event["payload"]["criterion_id"] for event in events
+                   if event["event_type"] == "gate_decided"}
+        pending = [event["payload"]["criterion_id"] for event in events
+                   if event["event_type"] == "gate_pending" and event["payload"]["criterion_id"] not in decided]
+        if len(pending) != 1:
+            raise ValueError(f"待决人工闸门数量应为 1，实际为 {len(pending)}")
+        status = Runner(store, execute_step, execute_check).resume(
+            tenant, run_id, pending[0], decision, approver, note)
+        typer.echo(json.dumps({"run_id": run_id, "status": status}, ensure_ascii=False))
+        if status not in ("done", "awaiting_gate"):
+            raise typer.Exit(1)
+    except typer.Exit:
+        raise
+    except (KeyError, OSError, ValueError, RuntimeError, NotImplementedError) as exc:
+        typer.echo(f"恢复失败：{exc}", err=True)
+        raise typer.Exit(3) from exc
+
+
+@app.command()
 def check(
     criterion: str = typer.Option(..., help="判据 id"),
     evidence: Path | None = typer.Option(None, help="rule 采集函数输出的 JSON 文件"),

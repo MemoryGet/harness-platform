@@ -7,12 +7,11 @@ from pathlib import Path
 
 
 class DeepSeekHeadlessExecutor:
-    def __init__(self, executable: Path, workspace: Path, dsh_home: Path,
-                 *, key_env: str = "HPX_DEEPSEEK_KEY", timeout_sec: int = 300):
-        self.executable = executable
+    def __init__(self, command: list[str], workspace: Path, dsh_home: Path,
+                 *, timeout_sec: int = 300):
+        self.command = command
         self.workspace = workspace
         self.dsh_home = dsh_home
-        self.key_env = key_env
         self.timeout_sec = timeout_sec
 
     def __call__(self, node: dict, context: dict) -> dict:
@@ -21,26 +20,24 @@ class DeepSeekHeadlessExecutor:
         task = node.get("config", {}).get("task")
         if not isinstance(task, str) or not task.strip():
             raise ValueError(f"agent 节点 {node['id']} 缺少 config.task")
-        key = os.environ.get(self.key_env)
-        if not key:
-            raise RuntimeError(f"缺少 DeepSeek 凭据变量 {self.key_env}")
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.dsh_home.mkdir(parents=True, exist_ok=True)
         allowed = {"PATH", "HOME", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy",
                    "https_proxy", "no_proxy", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE"}
         env = {name: value for name, value in os.environ.items() if name in allowed}
         env["DSH_HOME"] = str(self.dsh_home)
-        env["DEEPSEEK_API_KEY"] = key
+        if os.environ.get("HPX_OPENAI_KEY"):
+            env["OPENAI_API_KEY"] = os.environ["HPX_OPENAI_KEY"]
         prompt = json.dumps({"task": task, "inputs": context.get("input", {}),
                              "evidence": context.get("evidence", {}),
                              "required_output": "Return only a JSON object."}, ensure_ascii=False)
         try:
-            result = subprocess.run([str(self.executable), "--profile", "headless",
+            result = subprocess.run([*self.command, "--profile", "headless",
                                      "--permission-mode", "read-only", "--approval-policy", "never", "-"],
                                     input=prompt, text=True, capture_output=True,
                                     cwd=self.workspace, env=env, timeout=self.timeout_sec, check=False)
         except FileNotFoundError as exc:
-            raise RuntimeError(f"找不到 DeepSeek Harness 命令：{self.executable}") from exc
+            raise RuntimeError(f"找不到 DeepSeek Harness 命令：{self.command[0]}") from exc
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(f"DeepSeek Harness 节点 {node['id']} 超时") from exc
         if result.returncode != 0:

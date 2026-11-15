@@ -17,7 +17,7 @@ def execute_step(node: dict, context: dict) -> dict:
         return media_probe(Path(source))
     if node["uses"].startswith("agent."):
         return DeepSeekHeadlessExecutor(
-            Path("/workspace/.dsh/node_modules/.bin/dsh"),
+            ["node", "/workspace/deepseek-harness/apps/cli/lib/bin.js"],
             Path("/workspace/.hpx/dsh-runs") / context["run_id"],
             Path("/workspace/.dsh-home"),
         )(node, context)
