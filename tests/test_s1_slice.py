@@ -18,6 +18,8 @@ from hpx.knowledge.validate import validate_basis
 from hpx.model.pack import GateChecker, JudgeChecker, RuleChecker, SchemaChecker
 from hpx.model import CriterionPack
 from hpx.compile import compile_pack
+from hpx.runtime.store import RunStore
+from hpx.runtime.runner import Runner
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -211,6 +213,58 @@ class S1SliceTests(unittest.TestCase):
         pack.workflow.steps[0].depends_on = [pack.workflow.steps[-1].id]
         with self.assertRaisesRegex(DslError, "循环依赖"):
             compile_pack(pack, ROOT / "knowledge")
+
+    def test_run_store_persists_tenant_scoped_events(self):
+        ir = compile_pack(load_pack(ROOT / "examples/video-shortform.yaml"), ROOT / "knowledge")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "runs.sqlite3"
+            run_id = RunStore(path).create_run("tenant-a", ir, {"platform": "douyin"}, "test")
+            store = RunStore(path)
+            self.assertEqual(store.get_run("tenant-a", run_id)["status"], "pending")
+            with self.assertRaises(KeyError):
+                store.get_run("tenant-b", run_id)
+            self.assertEqual(store.append_event("tenant-a", run_id, "step_done", {"step": "ingest"}), 2)
+            self.assertEqual([event["seq"] for event in store.events("tenant-a", run_id)], [1, 2])
+            self.assertTrue(store.decide_gate("tenant-a", run_id, "release_signoff", "lead", "approve", "ok"))
+            self.assertFalse(store.decide_gate("tenant-a", run_id, "release_signoff", "lead", "approve", "ok"))
+            with self.assertRaises(ValueError):
+                store.decide_gate("tenant-a", run_id, "release_signoff", "lead", "reject", "different")
+
+    def test_runner_resumes_gate_without_reexecuting_steps(self):
+        ir = compile_pack(load_pack(ROOT / "examples/video-shortform.yaml"), ROOT / "knowledge")
+        with tempfile.TemporaryDirectory() as directory:
+            store = RunStore(Path(directory) / "runs.sqlite3")
+            calls = []
+
+            def step(node, context):
+                calls.append(node["id"])
+                return {"ok": True}
+
+            runner = Runner(store, step, lambda check, context: {"status": "pass"})
+            run_id = runner.start("tenant-a", ir, {}, triggered_by="test")
+            self.assertEqual(store.get_run("tenant-a", run_id)["status"], "awaiting_gate")
+            self.assertEqual(runner.advance("tenant-a", run_id), "awaiting_gate")
+            self.assertEqual(sum(event["event_type"] == "gate_pending" for event in store.events("tenant-a", run_id)), 1)
+            before = list(calls)
+            self.assertEqual(runner.resume("tenant-a", run_id, "release_signoff",
+                                           "approve", "lead", "looks good"), "done")
+            self.assertEqual(calls, before)
+            self.assertEqual(runner.advance("tenant-a", run_id), "done")
+            self.assertEqual(calls, before)
+            self.assertEqual(sum(event["event_type"] == "step_done" for event in store.events("tenant-a", run_id)),
+                             len(ir["graph"]["nodes"]))
+
+    def test_runner_veto_aborts_before_gate(self):
+        ir = compile_pack(load_pack(ROOT / "examples/video-shortform.yaml"), ROOT / "knowledge")
+        with tempfile.TemporaryDirectory() as directory:
+            store = RunStore(Path(directory) / "runs.sqlite3")
+            runner = Runner(store, lambda node, context: {},
+                            lambda check, context: {"status": "fail" if check["criterion_id"] == "ai_disclosure"
+                                                    else "pass"})
+            run_id = runner.start("tenant-a", ir, {}, triggered_by="test")
+            self.assertEqual(store.get_run("tenant-a", run_id)["status"], "aborted")
+            self.assertFalse(any(event["event_type"] == "gate_pending"
+                                 for event in store.events("tenant-a", run_id)))
 
 
 if __name__ == "__main__":
