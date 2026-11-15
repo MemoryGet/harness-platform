@@ -6,8 +6,7 @@ import typer
 
 from hpx.checkers.rule import check_rule
 from hpx.checkers.judge import JudgeService, ModelTarget
-from hpx.checkers.media import media_probe
-from hpx.checkers.record import input_get, record_field_check
+from hpx.checkers.registry import get_rule_fn
 from hpx.checkers.schema import check_schema
 from hpx.checkers.gate import check_gate
 from hpx.dsl.loader import DslError, load_pack
@@ -111,15 +110,8 @@ def check(
         if isinstance(item.check, RuleChecker):
             if evidence is not None:
                 values = json.loads(evidence.read_text(encoding="utf-8"))
-            elif artifact is not None and item.check.fn == "media.probe":
-                values = media_probe(artifact)
-            elif artifact is not None and item.check.fn in ("input.get", "record.field_check"):
-                source = json.loads(artifact.read_text(encoding="utf-8"))
-                params = item.check.params
-                if item.check.fn == "input.get":
-                    values = input_get(source, params["key"])
-                else:
-                    values = record_field_check(source, params["path"])
+            elif artifact is not None:
+                values = get_rule_fn(item.check.fn)(artifact, item.check.params)
             else:
                 raise ValueError("该 rule 检查需要 --evidence，或已支持的采集器加 --artifact")
             results = check_rule(item.check, values)

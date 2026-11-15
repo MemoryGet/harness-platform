@@ -12,6 +12,7 @@ from hpx.checkers.media import media_probe
 from hpx.checkers.schema import check_schema
 from hpx.checkers.gate import check_gate
 from hpx.checkers.record import input_get, record_field_check
+from hpx.checkers.registry import get_rule_fn, rule_fn
 from hpx.dsl.loader import DslError, load_pack
 from hpx.dsl.expr import ExpressionError, evaluate_expression, parse_expression
 from hpx.knowledge.validate import validate_basis
@@ -265,6 +266,17 @@ class S1SliceTests(unittest.TestCase):
             self.assertEqual(store.get_run("tenant-a", run_id)["status"], "aborted")
             self.assertFalse(any(event["event_type"] == "gate_pending"
                                  for event in store.events("tenant-a", run_id)))
+
+    def test_rule_collector_registry_supports_plugins(self):
+        @rule_fn("test.synthetic")
+        def collect(artifact, params):
+            return {"value": params["value"]}
+
+        self.assertEqual(get_rule_fn("test.synthetic")(Path("unused"), {"value": 3}), {"value": 3})
+        with self.assertRaisesRegex(ValueError, "重复注册"):
+            rule_fn("test.synthetic")(collect)
+        with self.assertRaisesRegex(ValueError, "找不到采集函数"):
+            get_rule_fn("missing")
 
 
 if __name__ == "__main__":
