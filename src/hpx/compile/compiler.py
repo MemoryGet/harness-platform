@@ -83,7 +83,7 @@ def compile_pack(pack: CriterionPack, knowledge_directory: Path) -> dict:
         for criterion in getattr(pack.slots, slot):
             checkpoints.append({"criterion_id": criterion.id, "slot": slot, "after": criterion.after,
                                 "severity": criterion.severity.value, "applies_when": criterion.applies_when,
-                                "checker": criterion.check.model_dump(mode="json", by_alias=True, exclude_none=True)})
+                                "checker": criterion.check.model_dump(mode="json", by_alias=True, exclude_none=False)})
             if isinstance(criterion.check, GateChecker):
                 gates.append({"criterion_id": criterion.id, "after": criterion.after,
                               "approver_role": criterion.check.approver_role})

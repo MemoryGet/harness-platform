@@ -21,6 +21,8 @@ from hpx.model import CriterionPack
 from hpx.compile import compile_pack
 from hpx.runtime.store import RunStore
 from hpx.runtime.runner import Runner
+from typer.testing import CliRunner
+from hpx.cli.main import app
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -205,6 +207,9 @@ class S1SliceTests(unittest.TestCase):
             self.assertLess(order[parent], order[child])
         indices = [order[checkpoint["after"]] for checkpoint in first["checkpoints"]]
         self.assertEqual(indices, sorted(indices))
+        consent = next(item for item in first["checkpoints"] if item["criterion_id"] == "portrait_consent_input")
+        self.assertIn("value", consent["checker"]["assert"][0])
+        self.assertIsNone(consent["checker"]["assert"][0]["value"])
 
     def test_compiler_rejects_missing_and_cyclic_steps(self):
         pack = load_pack(ROOT / "examples/video-shortform.yaml").model_copy(deep=True)
@@ -301,6 +306,12 @@ class S1SliceTests(unittest.TestCase):
         validate_basis(pack, ROOT / "knowledge")
         with self.assertRaisesRegex(DslError, "V-KB-06"):
             validate_basis(pack, ROOT / "knowledge", publish_ready=True)
+
+    def test_dry_run_shows_thresholds(self):
+        result = CliRunner().invoke(app, ["run", str(ROOT / "examples/video-shortform.yaml"), "--dry-run"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("loudness_target", result.stdout)
+        self.assertIn("audio.integrated_lufs within [-15, -13]", result.stdout)
 
 
 if __name__ == "__main__":

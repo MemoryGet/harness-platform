@@ -90,6 +90,13 @@ def run(pack: Path = typer.Argument(..., help="判据包 YAML"),
             checker = checkpoint["checker"]
             detail = checker.get("fn", checker.get("schema_ref", checker.get("approver_role", checker.get("model", ""))))
             typer.echo(f"  -> {checkpoint['criterion_id']} [{checkpoint['severity']}] {checker['type']} {detail}")
+            if checker["type"] == "rule":
+                for assertion in checker["assert"]:
+                    typer.echo(f"     {assertion['field']} {assertion['op']} {json.dumps(assertion['value'], ensure_ascii=False)}")
+            elif checker["type"] == "judge":
+                typer.echo(f"     {checker['pass_if']} (samples={checker['samples']})")
+            if checkpoint.get("applies_when"):
+                typer.echo(f"     when {checkpoint['applies_when']}")
 
 
 @app.command()
