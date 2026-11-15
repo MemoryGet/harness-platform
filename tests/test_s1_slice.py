@@ -296,6 +296,12 @@ class S1SliceTests(unittest.TestCase):
         with self.assertRaisesRegex(DslError, "V-KB-10"):
             validate_source(source, path)
 
+    def test_publish_ready_requires_veto_basis(self):
+        pack = load_pack(ROOT / "examples/video-shortform.yaml")
+        validate_basis(pack, ROOT / "knowledge")
+        with self.assertRaisesRegex(DslError, "V-KB-06"):
+            validate_basis(pack, ROOT / "knowledge", publish_ready=True)
+
 
 if __name__ == "__main__":
     unittest.main()

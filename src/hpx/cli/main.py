@@ -35,7 +35,8 @@ def schema_path(pack: Path, reference: str) -> Path:
 
 @app.command()
 def validate(paths: list[Path] = typer.Argument(..., help="一个或多个判据包 YAML"),
-             publish_date: str | None = typer.Option(None, help="包发布日期 YYYY-MM-DD，用于 V-KB-11")) -> None:
+             publish_date: str | None = typer.Option(None, help="包发布日期 YYYY-MM-DD，用于 V-KB-11"),
+             publish_ready: bool = typer.Option(False, "--publish-ready", help="额外检查发布依据覆盖率")) -> None:
     try:
         date_value = date.fromisoformat(publish_date) if publish_date else None
     except ValueError as exc:
@@ -45,7 +46,7 @@ def validate(paths: list[Path] = typer.Argument(..., help="一个或多个判据
     for path in paths:
         try:
             pack = load_pack(path)
-            validate_basis(pack, knowledge_directory(path), date_value)
+            validate_basis(pack, knowledge_directory(path), date_value, publish_ready)
             typer.echo(f"通过 {path} ({pack.metadata.id})")
         except DslError as exc:
             typer.echo(f"失败 {exc}", err=True)

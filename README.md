@@ -19,6 +19,8 @@ python -m venv .venv
 .venv/bin/hpx validate examples/legal-contract-review.yaml --publish-date 2026-11-15
 ```
 
+`--publish-ready` 额外检查 `veto` 与要求有依据的 `block` 判据。当前 S0 样例仍缺部分专家确认的书面依据，因此此检查可能失败；失败会指出判据 id，不应凭空补造依据。
+
 人工闸门的 `hpx check` 返回 `pending` 和退出码 1，表示仍需审批，不代表已经放行。
 
 `hpx check` 当前需要已有采集结果，例如：

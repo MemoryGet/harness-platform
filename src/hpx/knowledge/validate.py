@@ -50,7 +50,8 @@ def validate_source(source: dict, path: Path) -> None:
                 raise DslError(str(path), f"V-KB-10: 路径 {item_path} 的生效区间重叠")
 
 
-def validate_basis(pack: CriterionPack, directory: Path, publish_date: date | None = None) -> None:
+def validate_basis(pack: CriterionPack, directory: Path, publish_date: date | None = None,
+                   publish_ready: bool = False) -> None:
     """Check declared local sources and basis links (V-KB-01..03).
 
     V-KB-11 runs only with an explicit publication date; the current clock is
@@ -71,6 +72,10 @@ def validate_basis(pack: CriterionPack, directory: Path, publish_date: date | No
             sources[source_id] = data
     for slot in ("input", "process", "quality", "veto"):
         for criterion in getattr(pack.slots, slot):
+            if publish_ready and slot == "veto" and not criterion.basis:
+                raise DslError(criterion.id, "V-KB-06: 发布前 veto 判据必须有书面依据")
+            if publish_ready and criterion.severity.value == "block" and (pack.knowledge or {}).get("require_basis_for_block") and not criterion.basis:
+                raise DslError(criterion.id, "V-KB-06: 发布前 block 判据必须有书面依据")
             grounding = getattr(criterion.check, "grounding", None) or {}
             for source_id in grounding.get("sources", []):
                 if source_id not in declarations:
@@ -101,3 +106,11 @@ def validate_basis(pack: CriterionPack, directory: Path, publish_date: date | No
                     end = date.fromisoformat(end) if isinstance(end, str) else end
                     if (start and publish_date < start) or (end and publish_date > end):
                         raise DslError(criterion.id, f"V-KB-11: 依据 {item['id']} 在 {publish_date} 未生效")
+            if publish_ready and slot == "veto":
+                authoritative = any(
+                    basis.get("required", True)
+                    and sources[basis["source"]]["source"].get("authority") in ("statutory", "regulatory")
+                    for basis in criterion.basis
+                )
+                if not authoritative:
+                    raise DslError(criterion.id, "V-KB-05: veto 判据至少需要一条法定或监管级的必需依据")
