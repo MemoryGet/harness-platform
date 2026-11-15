@@ -15,7 +15,7 @@ from hpx.checkers.record import input_get, record_field_check
 from hpx.checkers.registry import get_rule_fn, rule_fn
 from hpx.dsl.loader import DslError, load_pack
 from hpx.dsl.expr import ExpressionError, evaluate_expression, parse_expression
-from hpx.knowledge.validate import validate_basis
+from hpx.knowledge.validate import validate_basis, validate_source
 from hpx.model.pack import GateChecker, JudgeChecker, RuleChecker, SchemaChecker
 from hpx.model import CriterionPack
 from hpx.compile import compile_pack
@@ -277,6 +277,24 @@ class S1SliceTests(unittest.TestCase):
             rule_fn("test.synthetic")(collect)
         with self.assertRaisesRegex(ValueError, "找不到采集函数"):
             get_rule_fn("missing")
+
+    def test_knowledge_source_rejects_cycles_and_overlapping_paths(self):
+        path = Path("synthetic.yaml")
+        source = {"items": [
+            {"id": "old", "path": "same", "effective_from": "2020-01-01",
+             "effective_to": "2022-12-31", "supersedes": None},
+            {"id": "new", "path": "same", "effective_from": "2023-01-01",
+             "effective_to": None, "supersedes": "old"},
+        ]}
+        validate_source(source, path)
+        source["items"][0]["supersedes"] = "new"
+        with self.assertRaisesRegex(DslError, "V-KB-09"):
+            validate_source(source, path)
+        source["items"][0]["supersedes"] = None
+        source["items"][1]["supersedes"] = None
+        source["items"][1]["effective_from"] = "2022-12-01"
+        with self.assertRaisesRegex(DslError, "V-KB-10"):
+            validate_source(source, path)
 
 
 if __name__ == "__main__":
